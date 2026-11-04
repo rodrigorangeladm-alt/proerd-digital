@@ -6,7 +6,21 @@ import {
 } from "lucide-react";
 import { configured, supabase, type Activity, type Demand, type Profile, type School } from "./lib";
 
-type Tab = "dashboard" | "schools" | "demands" | "activities" | "reports" | "users";
+type Tab = "dashboard" | "personnel" | "schools" | "demands" | "activities" | "reports" | "users";
+type Personnel = {
+  id: string;
+  full_name: string;
+  war_name: string | null;
+  service_number: string | null;
+  rank: string;
+  career_track: string | null;
+  function_name: string | null;
+  sector: string;
+  status: "Ativo" | "Afastado" | "Agregado" | "Inativo";
+  linked_profile_id: string | null;
+  notes: string | null;
+  created_at?: string;
+};
 const dateToday = () => new Date().toISOString().slice(0, 10);
 
 export default function App() {
@@ -17,6 +31,11 @@ export default function App() {
   const [demands, setDemands] = useState<Demand[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
+  const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const [personnelSearch, setPersonnelSearch] = useState("");
+  const [editingPersonnel, setEditingPersonnel] = useState<string | null>(null);
+  const emptyPersonnelForm = { full_name: "", war_name: "", service_number: "", rank: "", career_track: "", function_name: "", sector: "PROERD", status: "Ativo" as Personnel["status"], linked_profile_id: "", notes: "" };
+  const [personnelForm, setPersonnelForm] = useState(emptyPersonnelForm);
   const [roleSaving, setRoleSaving] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -65,18 +84,20 @@ export default function App() {
   async function refresh() {
     if (!supabase || !profile) return;
     setLoading(true);
-    const [s, d, a, u] = await Promise.all([
+    const [s, d, a, u, p] = await Promise.all([
       supabase.from("schools").select("*").order("name"),
       supabase.from("demands").select("*, schools(name,region), assignee:profiles!demands_assigned_to_fkey(full_name)").order("created_at", { ascending: false }),
       supabase.from("activities").select("*, demands(protocol,class_name,schools(name)), instructor:profiles!activities_instructor_id_fkey(full_name)").order("created_at", { ascending: false }),
-      profile.role === "admin" ? supabase.from("profiles").select("*").order("full_name") : Promise.resolve({ data: [], error: null } as any)
+      profile.role === "admin" ? supabase.from("profiles").select("*").order("full_name") : Promise.resolve({ data: [], error: null } as any),
+      profile.role === "admin" ? supabase.from("personnel").select("*").order("full_name") : Promise.resolve({ data: [], error: null } as any)
     ]);
-    const errors = [s.error, d.error, a.error].filter(Boolean);
+    const errors = [s.error, d.error, a.error, p.error].filter(Boolean);
     if (errors.length) setNotice("Alguns dados não foram carregados. Confira as políticas e a migração do Supabase.");
     setSchools((s.data || []) as School[]);
     setDemands((d.data || []) as Demand[]);
     setActivities((a.data || []) as Activity[]);
     setUsers((u.data || []) as Profile[]);
+    setPersonnel((p.data || []) as Personnel[]);
     setLoading(false);
   }
 
@@ -148,6 +169,58 @@ export default function App() {
     setReviewNote(""); refresh();
   }
 
+  function startPersonnelEdit(person: Personnel) {
+    setEditingPersonnel(person.id);
+    setPersonnelForm({
+      full_name: person.full_name || "", war_name: person.war_name || "",
+      service_number: person.service_number || "", rank: person.rank || "",
+      career_track: person.career_track || "", function_name: person.function_name || "",
+      sector: person.sector || "PROERD", status: person.status || "Ativo",
+      linked_profile_id: person.linked_profile_id || "", notes: person.notes || ""
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function resetPersonnelForm() {
+    setEditingPersonnel(null);
+    setPersonnelForm(emptyPersonnelForm);
+  }
+
+  async function savePersonnel(e: React.FormEvent) {
+    e.preventDefault();
+    if (!supabase || profile?.role !== "admin") return;
+    const payload = {
+      full_name: personnelForm.full_name.trim(),
+      war_name: personnelForm.war_name.trim() || null,
+      service_number: personnelForm.service_number.trim() || null,
+      rank: personnelForm.rank.trim(),
+      career_track: personnelForm.career_track.trim() || null,
+      function_name: personnelForm.function_name.trim() || null,
+      sector: personnelForm.sector.trim() || "PROERD",
+      status: personnelForm.status,
+      linked_profile_id: personnelForm.linked_profile_id || null,
+      notes: personnelForm.notes.trim() || null
+    };
+    const result = editingPersonnel
+      ? await supabase.from("personnel").update(payload).eq("id", editingPersonnel)
+      : await supabase.from("personnel").insert(payload);
+    if (result.error) {
+      setNotice(`Não foi possível salvar o cadastro: ${result.error.message}`);
+      return;
+    }
+    setNotice(editingPersonnel ? "Cadastro funcional atualizado." : "Policial cadastrado no efetivo.");
+    resetPersonnelForm();
+    await refresh();
+  }
+
+  async function deactivatePersonnel(person: Personnel) {
+    if (!supabase || profile?.role !== "admin") return;
+    if (!window.confirm(`Confirma inativar o cadastro de ${person.full_name}? O registro será preservado no histórico.`)) return;
+    const { error } = await supabase.from("personnel").update({ status: "Inativo" }).eq("id", person.id);
+    setNotice(error ? `Não foi possível inativar: ${error.message}` : "Cadastro inativado. O histórico foi preservado.");
+    if (!error) await refresh();
+  }
+
   async function changeUserRole(user: Profile, nextRole: "admin" | "instructor") {
     if (!supabase || !profile?.is_primary_admin) return;
     if (user.is_primary_admin) { setNotice("A conta do administrador principal não pode ser alterada."); return; }
@@ -186,6 +259,7 @@ export default function App() {
 
   const menu: {id:Tab; label:string; icon:any}[] = [
     {id:"dashboard",label:"Painel inicial",icon:LayoutDashboard},
+    ...(profile.role === "admin" ? [{id:"personnel" as Tab,label:"Gestão de Pessoal",icon:Users}] : []),
     ...(profile.role === "admin" ? [{id:"schools" as Tab,label:"Escolas",icon:SchoolIcon}] : []),
     {id:"demands",label:profile.role === "admin" ? "Central de demandas" : "Minhas designações",icon:ClipboardList},
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
@@ -207,6 +281,7 @@ export default function App() {
       {tab==="dashboard" && <section>
         <div className="welcome"><div><h2>Bem-vindo ao PROERD DIGITAL</h2><p>Ambiente controlado para validar o fluxo administrativo antes de uma implantação institucional.</p></div><ShieldCheck size={42}/></div>
         <div className="stats">
+          {profile.role === "admin" && <Stat label="Policiais cadastrados" value={personnel.length} icon={Users} onClick={() => setTab("personnel")}/>}
           <Stat label="Escolas cadastradas" value={schools.length} icon={SchoolIcon} onClick={() => setTab(profile.role === "admin" ? "schools" : "dashboard")} disabled={profile.role !== "admin"}/>
           <Stat label="Demandas em andamento" value={pending} icon={ClipboardList} onClick={() => setTab("demands")}/>
           <Stat label="Atividades registradas" value={activities.length} icon={BookOpen} onClick={() => setTab("activities")}/>
@@ -223,6 +298,44 @@ export default function App() {
           {label:"Relatório consolidado", tab:"reports" as Tab, adminOnly:true}
         ].map((step,i)=><button type="button" className="flow-step" key={step.label} disabled={!!step.adminOnly && profile.role !== "admin"} onClick={()=>setTab(step.tab)} title={step.adminOnly && profile.role !== "admin" ? "Disponível para administradores" : `Abrir ${step.label}`}><span>{i+1}</span><b>{step.label}</b>{i!==6&&<ArrowRight size={15}/>}</button>)}</div>
         <div className="info-panel"><AlertCircle size={19}/><div><b>Importante</b><p>Esta versão não substitui sistemas oficiais e não deve receber dados pessoais reais, informações de crianças ou documentos institucionais.</p></div></div>
+      </section>}
+      {tab==="personnel" && profile.role==="admin" && <section>
+        <div className="section-head"><div><h2>Cadastro do efetivo</h2><p>Gerencie os registros funcionais e vincule cada policial a uma conta de acesso, quando houver.</p></div><span className="count">{personnel.length} registros</span></div>
+        <div className="two-col">
+          <form className="panel form" onSubmit={savePersonnel}>
+            <h3><Plus size={18}/>{editingPersonnel ? "Editar cadastro funcional" : "Novo policial"}</h3>
+            <Field label="Nome completo"><input required value={personnelForm.full_name} onChange={e=>setPersonnelForm({...personnelForm,full_name:e.target.value})} placeholder="Nome fictício completo"/></Field>
+            <div className="form-row">
+              <Field label="Nome de guerra"><input value={personnelForm.war_name} onChange={e=>setPersonnelForm({...personnelForm,war_name:e.target.value})}/></Field>
+              <Field label="Matrícula fictícia"><input value={personnelForm.service_number} onChange={e=>setPersonnelForm({...personnelForm,service_number:e.target.value})}/></Field>
+            </div>
+            <div className="form-row">
+              <Field label="Posto/graduação"><input required value={personnelForm.rank} onChange={e=>setPersonnelForm({...personnelForm,rank:e.target.value})} placeholder="Ex.: 2º Sargento"/></Field>
+              <Field label="Quadro"><input value={personnelForm.career_track} onChange={e=>setPersonnelForm({...personnelForm,career_track:e.target.value})} placeholder="Ex.: QPPMC"/></Field>
+            </div>
+            <div className="form-row">
+              <Field label="Função"><input value={personnelForm.function_name} onChange={e=>setPersonnelForm({...personnelForm,function_name:e.target.value})} placeholder="Função administrativa"/></Field>
+              <Field label="Setor/lotação"><input required value={personnelForm.sector} onChange={e=>setPersonnelForm({...personnelForm,sector:e.target.value})}/></Field>
+            </div>
+            <div className="form-row">
+              <Field label="Situação funcional"><select value={personnelForm.status} onChange={e=>setPersonnelForm({...personnelForm,status:e.target.value as Personnel["status"]})}><option>Ativo</option><option>Afastado</option><option>Agregado</option><option>Inativo</option></select></Field>
+              <Field label="Vincular conta de acesso"><select value={personnelForm.linked_profile_id} onChange={e=>setPersonnelForm({...personnelForm,linked_profile_id:e.target.value})}><option value="">Sem vínculo</option>{users.map(u=><option key={u.id} value={u.id}>{u.full_name || u.email || "Usuário"} ({u.role==="admin"?"Administrador":"Instrutor"})</option>)}</select></Field>
+            </div>
+            <Field label="Observações"><textarea value={personnelForm.notes} onChange={e=>setPersonnelForm({...personnelForm,notes:e.target.value})} placeholder="Somente informações fictícias para a PoC."/></Field>
+            <div className="actions"><button className="primary" type="submit">{editingPersonnel ? "Salvar alterações" : "Cadastrar policial"}</button>{editingPersonnel && <button type="button" className="small-secondary" onClick={resetPersonnelForm}>Cancelar edição</button>}</div>
+            <p className="muted small-note">Use exclusivamente dados fictícios nesta prova de conceito.</p>
+          </form>
+          <div className="panel">
+            <div className="users-heading"><div><h3>Efetivo cadastrado</h3><p>Pesquise por nome, nome de guerra, matrícula ou posto/graduação.</p></div></div>
+            <Field label="Pesquisar efetivo"><input value={personnelSearch} onChange={e=>setPersonnelSearch(e.target.value)} placeholder="Digite para pesquisar..."/></Field>
+            {personnel.filter(p=>[p.full_name,p.war_name,p.service_number,p.rank,p.sector].some(v=>(v||"").toLowerCase().includes(personnelSearch.toLowerCase()))).length===0
+              ? <Empty text="Nenhum policial encontrado."/>
+              : <div className="records">{personnel.filter(p=>[p.full_name,p.war_name,p.service_number,p.rank,p.sector].some(v=>(v||"").toLowerCase().includes(personnelSearch.toLowerCase()))).map(p=><div className="record" key={p.id}>
+                <div className="record-icon"><Users size={18}/></div><div className="record-main"><b>{p.full_name}</b><small>{p.war_name ? `${p.war_name} · ` : ""}{p.rank} · {p.sector}</small><small>{p.service_number || "Sem matrícula"} · {p.status} · {p.linked_profile_id ? "Conta vinculada" : "Sem conta vinculada"}</small>
+                <div className="actions"><button type="button" className="small-secondary" onClick={()=>startPersonnelEdit(p)}>Editar</button>{p.status!=="Inativo" && <button type="button" className="small-danger" onClick={()=>deactivatePersonnel(p)}>Inativar</button>}</div></div>
+              </div>)}</div>}
+          </div>
+        </div>
       </section>}
       {tab==="schools" && <section>
         <div className="section-head"><div><h2>Cadastro de escolas</h2><p>Cadastro único para relacionar demandas e turmas.</p></div></div>

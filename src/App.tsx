@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity as ActivityIcon, AlertCircle, ArrowRight, BookOpen, Check, CheckCircle2,
-  ClipboardList, GraduationCap, LayoutDashboard, LogOut, Plus, RefreshCw, School as SchoolIcon,
+  ClipboardList, GraduationCap, LayoutDashboard, LogOut, Plus, RefreshCw, School as SchoolIcon, Car,
   ShieldCheck, Users, X
 } from "lucide-react";
 import { configured, supabase, type Activity, type Demand, type Profile, type School } from "./lib";
 
-type Tab = "dashboard" | "personnel" | "leave" | "schools" | "demands" | "activities" | "reports" | "users";
+type Tab = "dashboard" | "personnel" | "leave" | "vehicles" | "schools" | "demands" | "activities" | "reports" | "users";
 type Personnel = {
   id: string;
   full_name: string;
@@ -20,6 +20,12 @@ type Personnel = {
   linked_profile_id: string | null;
   notes: string | null;
   created_at?: string;
+};
+type Vehicle = {
+  id: string; fleet_number: string | null; plate: string | null; make: string | null;
+  model: string; manufacture_year: number | null; model_year: number | null; color: string | null;
+  status: "Disponivel" | "Em uso" | "Em manutencao" | "Inativa";
+  current_odometer: number; notes: string | null; created_at?: string;
 };
 type LeaveRequest = {
   id: string; personnel_id: string; requester_profile_id: string;
@@ -41,6 +47,11 @@ export default function App() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [editingVehicle, setEditingVehicle] = useState<string | null>(null);
+  const emptyVehicleForm = { fleet_number: "", plate: "", make: "", model: "", manufacture_year: "", model_year: "", color: "", status: "Disponivel" as Vehicle["status"], current_odometer: "0", notes: "" };
+  const [vehicleForm, setVehicleForm] = useState(emptyVehicleForm);
   const [leaveForm, setLeaveForm] = useState({ request_type: "Ferias" as LeaveRequest["request_type"], start_date: dateToday(), end_date: dateToday(), requester_note: "" });
   const [leaveEdit, setLeaveEdit] = useState<Record<string, {status:string; sei_process_number:string; sei_status:string; administrative_note:string; decision_note:string}>>({});
   const [personnelSearch, setPersonnelSearch] = useState("");
@@ -95,15 +106,16 @@ export default function App() {
   async function refresh() {
     if (!supabase || !profile) return;
     setLoading(true);
-    const [s, d, a, u, p, lr] = await Promise.all([
+    const [s, d, a, u, p, lr, v] = await Promise.all([
       supabase.from("schools").select("*").order("name"),
       supabase.from("demands").select("*, schools(name,region), assignee:profiles!demands_assigned_to_fkey(full_name)").order("created_at", { ascending: false }),
       supabase.from("activities").select("*, demands(protocol,class_name,schools(name)), instructor:profiles!activities_instructor_id_fkey(full_name)").order("created_at", { ascending: false }),
       profile.role === "admin" ? supabase.from("profiles").select("*").order("full_name") : Promise.resolve({ data: [], error: null } as any),
       profile.role === "admin" ? supabase.from("personnel").select("*").order("full_name") : supabase.from("personnel").select("*").eq("linked_profile_id", profile.id),
-      supabase.from("leave_requests").select("*, personnel(full_name,war_name,rank)").order("created_at", { ascending: false })
+      supabase.from("leave_requests").select("*, personnel(full_name,war_name,rank)").order("created_at", { ascending: false }),
+      supabase.from("vehicles").select("*").order("fleet_number")
     ]);
-    const errors = [s.error, d.error, a.error, p.error, lr.error].filter(Boolean);
+    const errors = [s.error, d.error, a.error, p.error, lr.error, v.error].filter(Boolean);
     if (errors.length) setNotice("Alguns dados não foram carregados. Confira as políticas e a migração do Supabase.");
     setSchools((s.data || []) as School[]);
     setDemands((d.data || []) as Demand[]);
@@ -111,6 +123,7 @@ export default function App() {
     setUsers((u.data || []) as Profile[]);
     setPersonnel((p.data || []) as Personnel[]);
     setLeaveRequests((lr.data || []) as LeaveRequest[]);
+    setVehicles((v.data || []) as Vehicle[]);
     setLeaveEdit(Object.fromEntries(((lr.data || []) as LeaveRequest[]).map(r => [r.id, { status:r.status, sei_process_number:r.sei_process_number || "", sei_status:r.sei_status || "", administrative_note:r.administrative_note || "", decision_note:r.decision_note || "" }])));
     setLoading(false);
   }
@@ -235,6 +248,54 @@ export default function App() {
     if (!error) await refresh();
   }
 
+
+  function startVehicleEdit(vehicle: Vehicle) {
+    setEditingVehicle(vehicle.id);
+    setVehicleForm({
+      fleet_number: vehicle.fleet_number || "", plate: vehicle.plate || "", make: vehicle.make || "",
+      model: vehicle.model || "", manufacture_year: vehicle.manufacture_year?.toString() || "",
+      model_year: vehicle.model_year?.toString() || "", color: vehicle.color || "",
+      status: vehicle.status, current_odometer: String(vehicle.current_odometer ?? 0), notes: vehicle.notes || ""
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function resetVehicleForm() { setEditingVehicle(null); setVehicleForm(emptyVehicleForm); }
+
+  async function saveVehicle(e: React.FormEvent) {
+    e.preventDefault();
+    if (!supabase || profile?.role !== "admin") return;
+    const payload = {
+      fleet_number: vehicleForm.fleet_number.trim() || null,
+      plate: vehicleForm.plate.trim() || null,
+      make: vehicleForm.make.trim() || null,
+      model: vehicleForm.model.trim(),
+      manufacture_year: vehicleForm.manufacture_year ? Number(vehicleForm.manufacture_year) : null,
+      model_year: vehicleForm.model_year ? Number(vehicleForm.model_year) : null,
+      color: vehicleForm.color.trim() || null,
+      status: vehicleForm.status,
+      current_odometer: Number(vehicleForm.current_odometer || 0),
+      notes: vehicleForm.notes.trim() || null
+    };
+    if (!payload.model) { setNotice("Informe o modelo da viatura."); return; }
+    if (!Number.isFinite(payload.current_odometer) || payload.current_odometer < 0) { setNotice("Informe uma quilometragem válida."); return; }
+    const result = editingVehicle
+      ? await supabase.from("vehicles").update(payload).eq("id", editingVehicle)
+      : await supabase.from("vehicles").insert(payload);
+    if (result.error) { setNotice(`Não foi possível salvar a viatura: ${result.error.message}`); return; }
+    setNotice(editingVehicle ? "Cadastro da viatura atualizado." : "Viatura cadastrada.");
+    resetVehicleForm();
+    await refresh();
+  }
+
+  async function deactivateVehicle(vehicle: Vehicle) {
+    if (!supabase || profile?.role !== "admin") return;
+    if (!window.confirm(`Confirma inativar a viatura ${vehicle.fleet_number || vehicle.model}? O registro será preservado.`)) return;
+    const { error } = await supabase.from("vehicles").update({ status: "Inativa" }).eq("id", vehicle.id);
+    setNotice(error ? `Não foi possível inativar: ${error.message}` : "Viatura inativada. O histórico foi preservado.");
+    if (!error) await refresh();
+  }
+
   async function submitLeaveRequest(e: React.FormEvent) {
     e.preventDefault();
     if (!supabase || !session?.user?.id) return;
@@ -304,6 +365,7 @@ export default function App() {
     {id:"dashboard",label:"Painel inicial",icon:LayoutDashboard},
     ...(profile.role === "admin" ? [{id:"personnel" as Tab,label:"Gestão de Pessoal",icon:Users}] : []),
     {id:"leave",label:"Férias, licenças e afastamentos",icon:ClipboardList},
+    ...(profile.role === "admin" ? [{id:"vehicles" as Tab,label:"Gestão de Viaturas",icon:Car}] : []),
     ...(profile.role === "admin" ? [{id:"schools" as Tab,label:"Escolas",icon:SchoolIcon}] : []),
     {id:"demands",label:profile.role === "admin" ? "Central de demandas" : "Minhas designações",icon:ClipboardList},
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
@@ -395,6 +457,50 @@ export default function App() {
           {leaveRequests.length===0 ? <Empty text="Nenhuma solicitação registrada."/> : <div className="table-wrap"><table><thead><tr><th>Policial</th><th>Tipo</th><th>Período</th><th>Situação</th>{profile.role === "admin" && <th>Tramitação e análise</th>}</tr></thead><tbody>{leaveRequests.map(r=><tr key={r.id}><td><b>{r.personnel?.full_name || "Cadastro funcional"}</b><small>{r.personnel?.rank || ""}</small>{r.requester_note && <small>{r.requester_note}</small>}</td><td>{r.request_type}</td><td>{r.start_date} a {r.end_date}</td><td><Status value={r.status}/>{r.sei_process_number && <small>SEI: {r.sei_process_number}</small>}{r.sei_status && <small>{r.sei_status}</small>}{r.decision_note && <small>{r.decision_note}</small>}</td>{profile.role === "admin" && <td><div className="form"><Field label="Situação"><select value={leaveEdit[r.id]?.status || r.status} onChange={e=>setLeaveEdit({...leaveEdit,[r.id]:{...leaveEdit[r.id],status:e.target.value}})}>{["Solicitada","Em analise","Aguardando documentacao","Em tramitacao SEI","Deferida","Indeferida","Cancelada"].map(v=><option key={v}>{v}</option>)}</select></Field><Field label="Número do processo SEI/GDF"><input value={leaveEdit[r.id]?.sei_process_number || ""} onChange={e=>setLeaveEdit({...leaveEdit,[r.id]:{...leaveEdit[r.id],sei_process_number:e.target.value}})} placeholder="Número fictício"/></Field><Field label="Andamento administrativo"><input value={leaveEdit[r.id]?.sei_status || ""} onChange={e=>setLeaveEdit({...leaveEdit,[r.id]:{...leaveEdit[r.id],sei_status:e.target.value}})} placeholder="Ex.: encaminhado para análise"/></Field><Field label="Observação administrativa"><input value={leaveEdit[r.id]?.administrative_note || ""} onChange={e=>setLeaveEdit({...leaveEdit,[r.id]:{...leaveEdit[r.id],administrative_note:e.target.value}})}/></Field><Field label="Fundamentação/observação da decisão"><input value={leaveEdit[r.id]?.decision_note || ""} onChange={e=>setLeaveEdit({...leaveEdit,[r.id]:{...leaveEdit[r.id],decision_note:e.target.value}})}/></Field><button className="small-primary" onClick={()=>updateLeaveRequest(r.id)}>Salvar análise</button></div></td>}</tr>)}</tbody></table></div>}
         </div>
       </section>}
+
+      {tab==="vehicles" && profile.role==="admin" && <section>
+        <div className="section-head"><div><h2>Cadastro de viaturas</h2><p>Gerencie a frota vinculada ao PROERD. Utilize somente dados fictícios nesta prova de conceito.</p></div><span className="count">{vehicles.filter(v=>v.status!=="Inativa").length} ativas</span></div>
+        <div className="two-col">
+          <form className="panel form" onSubmit={saveVehicle}>
+            <h3><Plus size={18}/>{editingVehicle ? "Editar viatura" : "Nova viatura"}</h3>
+            <div className="form-row">
+              <Field label="Número de frota"><input value={vehicleForm.fleet_number} onChange={e=>setVehicleForm({...vehicleForm,fleet_number:e.target.value})} placeholder="Ex.: PROERD-01"/></Field>
+              <Field label="Placa fictícia"><input value={vehicleForm.plate} onChange={e=>setVehicleForm({...vehicleForm,plate:e.target.value})} placeholder="Ex.: ABC1D23"/></Field>
+            </div>
+            <div className="form-row">
+              <Field label="Marca"><input value={vehicleForm.make} onChange={e=>setVehicleForm({...vehicleForm,make:e.target.value})} placeholder="Ex.: Chevrolet"/></Field>
+              <Field label="Modelo"><input required value={vehicleForm.model} onChange={e=>setVehicleForm({...vehicleForm,model:e.target.value})} placeholder="Ex.: Spin"/></Field>
+            </div>
+            <div className="form-row">
+              <Field label="Ano de fabricação"><input type="number" min="1980" max="2100" value={vehicleForm.manufacture_year} onChange={e=>setVehicleForm({...vehicleForm,manufacture_year:e.target.value})}/></Field>
+              <Field label="Ano do modelo"><input type="number" min="1980" max="2100" value={vehicleForm.model_year} onChange={e=>setVehicleForm({...vehicleForm,model_year:e.target.value})}/></Field>
+            </div>
+            <div className="form-row">
+              <Field label="Cor"><input value={vehicleForm.color} onChange={e=>setVehicleForm({...vehicleForm,color:e.target.value})}/></Field>
+              <Field label="Quilometragem atual"><input type="number" min="0" step="0.1" value={vehicleForm.current_odometer} onChange={e=>setVehicleForm({...vehicleForm,current_odometer:e.target.value})}/></Field>
+            </div>
+            <Field label="Situação"><select value={vehicleForm.status} onChange={e=>setVehicleForm({...vehicleForm,status:e.target.value as Vehicle["status"]})}><option value="Disponivel">Disponível</option><option value="Em uso">Em uso</option><option value="Em manutencao">Em manutenção</option><option value="Inativa">Inativa</option></select></Field>
+            <Field label="Observações"><textarea value={vehicleForm.notes} onChange={e=>setVehicleForm({...vehicleForm,notes:e.target.value})} placeholder="Informações fictícias para a PoC."/></Field>
+            <div className="actions"><button className="primary">{editingVehicle ? "Salvar alterações" : "Cadastrar viatura"}</button>{editingVehicle && <button type="button" className="small-secondary" onClick={resetVehicleForm}>Cancelar edição</button>}</div>
+          </form>
+          <div className="panel">
+            <h3>Frota cadastrada</h3><p className="muted">Pesquise por frota, placa, marca ou modelo.</p>
+            <Field label="Pesquisar viaturas"><input value={vehicleSearch} onChange={e=>setVehicleSearch(e.target.value)} placeholder="Digite para pesquisar..."/></Field>
+            {vehicles.filter(v=>[v.fleet_number,v.plate,v.make,v.model].some(x=>(x||"").toLowerCase().includes(vehicleSearch.toLowerCase()))).length===0
+              ? <Empty text="Nenhuma viatura encontrada."/>
+              : <div className="records">{vehicles.filter(v=>[v.fleet_number,v.plate,v.make,v.model].some(x=>(x||"").toLowerCase().includes(vehicleSearch.toLowerCase()))).map(v=><div className="record" key={v.id}>
+                <div className="record-icon"><Car size={18}/></div><div className="record-main">
+                  <b>{v.fleet_number || "Sem número de frota"} · {v.make ? `${v.make} ` : ""}{v.model}</b>
+                  <small>{v.plate || "Sem placa"} · {v.manufacture_year || "Ano não informado"}/{v.model_year || "—"}</small>
+                  <small>{Number(v.current_odometer).toLocaleString("pt-BR")} km · <Status value={v.status}/></small>
+                  {v.notes && <small>{v.notes}</small>}
+                  <div className="actions"><button className="small-secondary" onClick={()=>startVehicleEdit(v)}>Editar</button>{v.status!=="Inativa" && <button className="small-danger" onClick={()=>deactivateVehicle(v)}>Inativar</button>}</div>
+                </div>
+              </div>)}</div>}
+          </div>
+        </div>
+      </section>}
+
       {tab==="schools" && <section>
         <div className="section-head"><div><h2>Cadastro de escolas</h2><p>Cadastro único para relacionar demandas e turmas.</p></div></div>
         <div className="two-col"><form className="panel form" onSubmit={addSchool}><h3><Plus size={18}/> Nova escola</h3><Field label="Nome da escola"><input required value={schoolName} onChange={e=>setSchoolName(e.target.value)} placeholder="Escola Exemplo" /></Field><div className="form-row"><Field label="Região administrativa"><input required value={region} onChange={e=>setRegion(e.target.value)} /></Field><Field label="Tipo"><select value={schoolType} onChange={e=>setSchoolType(e.target.value)}><option>Pública</option><option>Privada</option><option>Federal</option></select></Field></div><Field label="Endereço fictício"><input value={address} onChange={e=>setAddress(e.target.value)} placeholder="Endereço para simulação" /></Field><button className="primary">Salvar escola</button></form>
@@ -424,7 +530,7 @@ export default function App() {
         </div>
         <div className="panel form user-create-note"><h3><Plus size={18}/> Como adicionar uma pessoa</h3><ol><li>A pessoa acessa a tela inicial e escolhe “Criar conta”.</li><li>Após confirmar o e-mail, se essa exigência estiver ativa, ela entra no sistema.</li><li>O cadastro aparece nesta lista com o perfil inicial de instrutor.</li><li>Você escolhe se mantém como instrutor ou promove a administrador.</li></ol><p className="muted">Esta versão não envia convites por e-mail. A criação da conta é feita pelo próprio usuário.</p></div>
       </section>}
-      <footer>PROERD DIGITAL · PoC 0.3 · Dados fictícios · Não é sistema oficial da PMDF</footer>
+      <footer>PROERD DIGITAL · PoC 0.4 · Dados fictícios · Não é sistema oficial da PMDF</footer>
     </main>
   </div>;
 }

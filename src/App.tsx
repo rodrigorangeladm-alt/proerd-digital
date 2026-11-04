@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { configured, supabase, type Activity, type Demand, type Profile, type School } from "./lib";
 
-type Tab = "dashboard" | "personnel" | "leave" | "vehicles" | "schools" | "demands" | "activities" | "reports" | "users";
+type Tab = "dashboard" | "personnel" | "leave" | "vehicles" | "vehicleUsage" | "schools" | "demands" | "activities" | "reports" | "users";
 type Personnel = {
   id: string;
   full_name: string;
@@ -27,6 +27,22 @@ type Vehicle = {
   status: "Disponivel" | "Em uso" | "Em manutencao" | "Inativa";
   current_odometer: number; notes: string | null; created_at?: string;
 };
+type VehicleUsage = {
+  id: string;
+  vehicle_id: string;
+  personnel_id: string;
+  destination: string;
+  purpose: string;
+  departure_at: string;
+  return_at: string | null;
+  odometer_out: number;
+  odometer_in: number | null;
+  status: "Em andamento" | "Finalizada" | "Cancelada";
+  notes: string | null;
+  vehicle?: { fleet_number: string | null; make: string | null; model: string; plate: string | null } | null;
+  personnel?: { full_name: string; war_name: string | null; rank: string } | null;
+};
+
 type LeaveRequest = {
   id: string; personnel_id: string; requester_profile_id: string;
   request_type: "Ferias" | "Licenca" | "Afastamento"; start_date: string; end_date: string;
@@ -36,6 +52,11 @@ type LeaveRequest = {
   personnel?: { full_name: string; war_name: string | null; rank: string } | null;
 };
 const dateToday = () => new Date().toISOString().slice(0, 10);
+const dateTimeLocalNow = () => {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+};
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
@@ -48,6 +69,12 @@ export default function App() {
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [vehicleUsages, setVehicleUsages] = useState<VehicleUsage[]>([]);
+  const [usageForm, setUsageForm] = useState({
+    vehicle_id: "", personnel_id: "", destination: "", purpose: "",
+    departure_at: dateTimeLocalNow(), odometer_out: "", notes: ""
+  });
+  const [usageReturnValues, setUsageReturnValues] = useState<Record<string, { return_at: string; odometer_in: string }>>({});
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [editingVehicle, setEditingVehicle] = useState<string | null>(null);
   const emptyVehicleForm = { fleet_number: "", plate: "", make: "", model: "", manufacture_year: "", model_year: "", color: "", status: "Disponivel" as Vehicle["status"], current_odometer: "0", notes: "" };
@@ -106,16 +133,17 @@ export default function App() {
   async function refresh() {
     if (!supabase || !profile) return;
     setLoading(true);
-    const [s, d, a, u, p, lr, v] = await Promise.all([
+    const [s, d, a, u, p, lr, v, vu] = await Promise.all([
       supabase.from("schools").select("*").order("name"),
       supabase.from("demands").select("*, schools(name,region), assignee:profiles!demands_assigned_to_fkey(full_name)").order("created_at", { ascending: false }),
       supabase.from("activities").select("*, demands(protocol,class_name,schools(name)), instructor:profiles!activities_instructor_id_fkey(full_name)").order("created_at", { ascending: false }),
       profile.role === "admin" ? supabase.from("profiles").select("*").order("full_name") : Promise.resolve({ data: [], error: null } as any),
       profile.role === "admin" ? supabase.from("personnel").select("*").order("full_name") : supabase.from("personnel").select("*").eq("linked_profile_id", profile.id),
       supabase.from("leave_requests").select("*, personnel(full_name,war_name,rank)").order("created_at", { ascending: false }),
-      supabase.from("vehicles").select("*").order("fleet_number")
+      supabase.from("vehicles").select("*").order("fleet_number"),
+      supabase.from("vehicle_usage").select("*, vehicle:vehicles(fleet_number,make,model,plate), personnel(full_name,war_name,rank)").order("departure_at", { ascending: false })
     ]);
-    const errors = [s.error, d.error, a.error, p.error, lr.error, v.error].filter(Boolean);
+    const errors = [s.error, d.error, a.error, p.error, lr.error, v.error, vu.error].filter(Boolean);
     if (errors.length) setNotice("Alguns dados não foram carregados. Confira as políticas e a migração do Supabase.");
     setSchools((s.data || []) as School[]);
     setDemands((d.data || []) as Demand[]);
@@ -124,6 +152,7 @@ export default function App() {
     setPersonnel((p.data || []) as Personnel[]);
     setLeaveRequests((lr.data || []) as LeaveRequest[]);
     setVehicles((v.data || []) as Vehicle[]);
+    setVehicleUsages((vu.data || []) as VehicleUsage[]);
     setLeaveEdit(Object.fromEntries(((lr.data || []) as LeaveRequest[]).map(r => [r.id, { status:r.status, sei_process_number:r.sei_process_number || "", sei_status:r.sei_status || "", administrative_note:r.administrative_note || "", decision_note:r.decision_note || "" }])));
     setLoading(false);
   }
@@ -296,6 +325,101 @@ export default function App() {
     if (!error) await refresh();
   }
 
+  async function startVehicleUsage(e: React.FormEvent) {
+    e.preventDefault();
+    if (!supabase || profile?.role !== "admin") return;
+    const vehicle = vehicles.find(v => v.id === usageForm.vehicle_id);
+    const person = personnel.find(p => p.id === usageForm.personnel_id && p.status === "Ativo");
+    if (!vehicle || vehicle.status !== "Disponivel") {
+      setNotice("Selecione uma viatura disponível.");
+      return;
+    }
+    if (!person) {
+      setNotice("Selecione um policial com cadastro funcional ativo.");
+      return;
+    }
+    if (vehicleUsages.some(u => u.vehicle_id === vehicle.id && u.status === "Em andamento")) {
+      setNotice("Esta viatura já possui uma utilização em andamento.");
+      return;
+    }
+    const odometer = Number(usageForm.odometer_out);
+    if (!Number.isFinite(odometer) || odometer < Number(vehicle.current_odometer)) {
+      setNotice("A quilometragem de saída não pode ser inferior à quilometragem atual da viatura.");
+      return;
+    }
+    const { error } = await supabase.from("vehicle_usage").insert({
+      vehicle_id: vehicle.id,
+      personnel_id: person.id,
+      destination: usageForm.destination.trim(),
+      purpose: usageForm.purpose.trim(),
+      departure_at: new Date(usageForm.departure_at).toISOString(),
+      odometer_out: odometer,
+      notes: usageForm.notes.trim() || null
+    });
+    if (error) {
+      setNotice(`Não foi possível registrar a saída: ${error.message}`);
+      return;
+    }
+    const vehicleUpdate = await supabase.from("vehicles").update({ status: "Em uso" }).eq("id", vehicle.id);
+    setNotice(vehicleUpdate.error
+      ? `Saída registrada, mas não foi possível atualizar a situação da viatura: ${vehicleUpdate.error.message}`
+      : "Saída da viatura registrada.");
+    setUsageForm({ vehicle_id: "", personnel_id: "", destination: "", purpose: "", departure_at: dateTimeLocalNow(), odometer_out: "", notes: "" });
+    await refresh();
+  }
+
+  async function finishVehicleUsage(id: string) {
+    if (!supabase || profile?.role !== "admin") return;
+    const usage = vehicleUsages.find(u => u.id === id);
+    const values = usageReturnValues[id];
+    if (!usage || !values) return;
+    const odometer = Number(values.odometer_in);
+    if (!values.odometer_in || !Number.isFinite(odometer) || odometer < Number(usage.odometer_out)) {
+      setNotice("A quilometragem de retorno deve ser igual ou superior à quilometragem de saída.");
+      return;
+    }
+    if (!values.return_at) {
+      setNotice("Informe a data e hora do retorno.");
+      return;
+    }
+    const returnAt = new Date(values.return_at).toISOString();
+    if (new Date(returnAt) < new Date(usage.departure_at)) {
+      setNotice("A data e hora de retorno não podem ser anteriores à saída.");
+      return;
+    }
+    const { error } = await supabase.from("vehicle_usage").update({
+      status: "Finalizada", return_at: returnAt, odometer_in: odometer
+    }).eq("id", id);
+    if (error) {
+      setNotice(`Não foi possível finalizar a utilização: ${error.message}`);
+      return;
+    }
+    const vehicleUpdate = await supabase.from("vehicles").update({
+      status: "Disponivel", current_odometer: odometer
+    }).eq("id", usage.vehicle_id);
+    setNotice(vehicleUpdate.error
+      ? `Utilização finalizada, mas a situação/quilometragem da viatura não foi atualizada: ${vehicleUpdate.error.message}`
+      : "Retorno registrado e utilização finalizada.");
+    await refresh();
+  }
+
+  async function cancelVehicleUsage(id: string) {
+    if (!supabase || profile?.role !== "admin") return;
+    const usage = vehicleUsages.find(u => u.id === id);
+    if (!usage || usage.status !== "Em andamento") return;
+    if (!window.confirm("Confirma cancelar este registro de utilização?")) return;
+    const { error } = await supabase.from("vehicle_usage").update({ status: "Cancelada" }).eq("id", id);
+    if (error) {
+      setNotice(`Não foi possível cancelar o registro: ${error.message}`);
+      return;
+    }
+    const vehicleUpdate = await supabase.from("vehicles").update({ status: "Disponivel" }).eq("id", usage.vehicle_id);
+    setNotice(vehicleUpdate.error
+      ? `Registro cancelado, mas não foi possível atualizar a situação da viatura: ${vehicleUpdate.error.message}`
+      : "Registro de utilização cancelado.");
+    await refresh();
+  }
+
   async function submitLeaveRequest(e: React.FormEvent) {
     e.preventDefault();
     if (!supabase || !session?.user?.id) return;
@@ -366,6 +490,7 @@ export default function App() {
     ...(profile.role === "admin" ? [{id:"personnel" as Tab,label:"Gestão de Pessoal",icon:Users}] : []),
     {id:"leave",label:"Férias, licenças e afastamentos",icon:ClipboardList},
     ...(profile.role === "admin" ? [{id:"vehicles" as Tab,label:"Gestão de Viaturas",icon:Car}] : []),
+    ...(profile.role === "admin" ? [{id:"vehicleUsage" as Tab,label:"Histórico de utilização",icon:ClipboardList}] : []),
     ...(profile.role === "admin" ? [{id:"schools" as Tab,label:"Escolas",icon:SchoolIcon}] : []),
     {id:"demands",label:profile.role === "admin" ? "Central de demandas" : "Minhas designações",icon:ClipboardList},
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
@@ -501,6 +626,45 @@ export default function App() {
         </div>
       </section>}
 
+      {tab==="vehicleUsage" && profile.role==="admin" && <section>
+        <div className="section-head"><div><h2>Histórico de utilização de viaturas</h2><p>Registre saídas, retornos, responsáveis, destinos e quilometragem. Utilize somente dados fictícios nesta PoC.</p></div><span className="count">{vehicleUsages.length} registros</span></div>
+        <div className="panel form demand-form">
+          <h3><Plus size={18}/> Registrar saída de viatura</h3>
+          <form onSubmit={startVehicleUsage}>
+            <div className="form-row">
+              <Field label="Viatura"><select required value={usageForm.vehicle_id} onChange={e=>{
+                const selected = vehicles.find(v=>v.id===e.target.value);
+                setUsageForm({...usageForm,vehicle_id:e.target.value,odometer_out:selected ? String(selected.current_odometer) : ""});
+              }}><option value="">Selecione uma viatura disponível</option>{vehicles.filter(v=>v.status==="Disponivel").map(v=><option key={v.id} value={v.id}>{v.fleet_number || "Sem frota"} · {v.make || ""} {v.model} · {v.plate || "Sem placa"}</option>)}</select></Field>
+              <Field label="Policial responsável"><select required value={usageForm.personnel_id} onChange={e=>setUsageForm({...usageForm,personnel_id:e.target.value})}><option value="">Selecione o policial</option>{personnel.filter(p=>p.status==="Ativo").map(p=><option key={p.id} value={p.id}>{p.rank} · {p.full_name}</option>)}</select></Field>
+            </div>
+            <div className="form-row">
+              <Field label="Destino"><input required value={usageForm.destination} onChange={e=>setUsageForm({...usageForm,destination:e.target.value})} placeholder="Destino fictício"/></Field>
+              <Field label="Finalidade"><input required value={usageForm.purpose} onChange={e=>setUsageForm({...usageForm,purpose:e.target.value})} placeholder="Finalidade do deslocamento"/></Field>
+            </div>
+            <div className="form-row">
+              <Field label="Data e hora da saída"><input type="datetime-local" required value={usageForm.departure_at} onChange={e=>setUsageForm({...usageForm,departure_at:e.target.value})}/></Field>
+              <Field label="Quilometragem de saída"><input type="number" min="0" step="0.1" required value={usageForm.odometer_out} onChange={e=>setUsageForm({...usageForm,odometer_out:e.target.value})}/></Field>
+            </div>
+            <Field label="Observações"><textarea value={usageForm.notes} onChange={e=>setUsageForm({...usageForm,notes:e.target.value})} placeholder="Observações administrativas fictícias."/></Field>
+            <button className="primary" disabled={!vehicles.some(v=>v.status==="Disponivel") || !personnel.some(p=>p.status==="Ativo")}>Registrar saída</button>
+          </form>
+        </div>
+        <div className="panel table-panel">
+          <div className="users-heading"><div><h3>Registros de utilização</h3><p>As utilizações em andamento podem ser finalizadas com os dados de retorno.</p></div></div>
+          {vehicleUsages.length===0 ? <Empty text="Nenhuma utilização registrada."/> : <div className="table-wrap"><table><thead><tr><th>Viatura</th><th>Responsável</th><th>Destino / finalidade</th><th>Saída</th><th>Retorno / situação</th><th>Ações</th></tr></thead><tbody>{vehicleUsages.map(u=><tr key={u.id}>
+            <td><b>{u.vehicle?.fleet_number || "Sem frota"}</b><small>{u.vehicle?.make || ""} {u.vehicle?.model || ""} · {u.vehicle?.plate || "Sem placa"}</small></td>
+            <td><b>{u.personnel?.full_name || "Cadastro funcional"}</b><small>{u.personnel?.rank || ""}</small></td>
+            <td>{u.destination}<small>{u.purpose}</small>{u.notes && <small>{u.notes}</small>}</td>
+            <td>{new Date(u.departure_at).toLocaleString("pt-BR")}<small>{Number(u.odometer_out).toLocaleString("pt-BR")} km</small></td>
+            <td><Status value={u.status}/>{u.return_at && <small>{new Date(u.return_at).toLocaleString("pt-BR")}</small>}{u.odometer_in !== null && <small>{Number(u.odometer_in).toLocaleString("pt-BR")} km</small>}
+              {u.status==="Em andamento" && <div className="form"><Field label="Data e hora do retorno"><input type="datetime-local" value={usageReturnValues[u.id]?.return_at || dateTimeLocalNow()} onChange={e=>setUsageReturnValues({...usageReturnValues,[u.id]:{return_at:e.target.value,odometer_in:usageReturnValues[u.id]?.odometer_in || ""}})}/></Field><Field label="Quilometragem de retorno"><input type="number" min={u.odometer_out} step="0.1" value={usageReturnValues[u.id]?.odometer_in || ""} onChange={e=>setUsageReturnValues({...usageReturnValues,[u.id]:{return_at:usageReturnValues[u.id]?.return_at || dateTimeLocalNow(),odometer_in:e.target.value}})}/></Field></div>}
+            </td>
+            <td>{u.status==="Em andamento" ? <div className="actions"><button className="small-primary" onClick={()=>finishVehicleUsage(u.id)}>Registrar retorno</button><button className="small-danger" onClick={()=>cancelVehicleUsage(u.id)}>Cancelar</button></div> : "—"}</td>
+          </tr>)}</tbody></table></div>}
+        </div>
+      </section>}
+
       {tab==="schools" && <section>
         <div className="section-head"><div><h2>Cadastro de escolas</h2><p>Cadastro único para relacionar demandas e turmas.</p></div></div>
         <div className="two-col"><form className="panel form" onSubmit={addSchool}><h3><Plus size={18}/> Nova escola</h3><Field label="Nome da escola"><input required value={schoolName} onChange={e=>setSchoolName(e.target.value)} placeholder="Escola Exemplo" /></Field><div className="form-row"><Field label="Região administrativa"><input required value={region} onChange={e=>setRegion(e.target.value)} /></Field><Field label="Tipo"><select value={schoolType} onChange={e=>setSchoolType(e.target.value)}><option>Pública</option><option>Privada</option><option>Federal</option></select></Field></div><Field label="Endereço fictício"><input value={address} onChange={e=>setAddress(e.target.value)} placeholder="Endereço para simulação" /></Field><button className="primary">Salvar escola</button></form>
@@ -530,7 +694,7 @@ export default function App() {
         </div>
         <div className="panel form user-create-note"><h3><Plus size={18}/> Como adicionar uma pessoa</h3><ol><li>A pessoa acessa a tela inicial e escolhe “Criar conta”.</li><li>Após confirmar o e-mail, se essa exigência estiver ativa, ela entra no sistema.</li><li>O cadastro aparece nesta lista com o perfil inicial de instrutor.</li><li>Você escolhe se mantém como instrutor ou promove a administrador.</li></ol><p className="muted">Esta versão não envia convites por e-mail. A criação da conta é feita pelo próprio usuário.</p></div>
       </section>}
-      <footer>PROERD DIGITAL · PoC 0.4 · Dados fictícios · Não é sistema oficial da PMDF</footer>
+      <footer>PROERD DIGITAL · PoC 0.5 · Dados fictícios · Não é sistema oficial da PMDF</footer>
     </main>
   </div>;
 }

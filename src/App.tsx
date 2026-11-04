@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { configured, supabase, type Activity, type Demand, type Profile, type School } from "./lib";
 
-type Tab = "dashboard" | "personnel" | "schools" | "demands" | "activities" | "reports" | "users";
+type Tab = "dashboard" | "personnel" | "leave" | "schools" | "demands" | "activities" | "reports" | "users";
 type Personnel = {
   id: string;
   full_name: string;
@@ -21,6 +21,14 @@ type Personnel = {
   notes: string | null;
   created_at?: string;
 };
+type LeaveRequest = {
+  id: string; personnel_id: string; requester_profile_id: string;
+  request_type: "Ferias" | "Licenca" | "Afastamento"; start_date: string; end_date: string;
+  requester_note: string | null; status: string; sei_process_number: string | null;
+  sei_status: string | null; administrative_note: string | null; decision_note: string | null;
+  reviewed_by: string | null; reviewed_at: string | null; created_at: string;
+  personnel?: { full_name: string; war_name: string | null; rank: string } | null;
+};
 const dateToday = () => new Date().toISOString().slice(0, 10);
 
 export default function App() {
@@ -32,6 +40,9 @@ export default function App() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [leaveForm, setLeaveForm] = useState({ request_type: "Ferias" as LeaveRequest["request_type"], start_date: dateToday(), end_date: dateToday(), requester_note: "" });
+  const [leaveEdit, setLeaveEdit] = useState<Record<string, {status:string; sei_process_number:string; sei_status:string; administrative_note:string; decision_note:string}>>({});
   const [personnelSearch, setPersonnelSearch] = useState("");
   const [editingPersonnel, setEditingPersonnel] = useState<string | null>(null);
   const emptyPersonnelForm = { full_name: "", war_name: "", service_number: "", rank: "", career_track: "", function_name: "", sector: "PROERD", status: "Ativo" as Personnel["status"], linked_profile_id: "", notes: "" };
@@ -84,20 +95,23 @@ export default function App() {
   async function refresh() {
     if (!supabase || !profile) return;
     setLoading(true);
-    const [s, d, a, u, p] = await Promise.all([
+    const [s, d, a, u, p, lr] = await Promise.all([
       supabase.from("schools").select("*").order("name"),
       supabase.from("demands").select("*, schools(name,region), assignee:profiles!demands_assigned_to_fkey(full_name)").order("created_at", { ascending: false }),
       supabase.from("activities").select("*, demands(protocol,class_name,schools(name)), instructor:profiles!activities_instructor_id_fkey(full_name)").order("created_at", { ascending: false }),
       profile.role === "admin" ? supabase.from("profiles").select("*").order("full_name") : Promise.resolve({ data: [], error: null } as any),
-      profile.role === "admin" ? supabase.from("personnel").select("*").order("full_name") : Promise.resolve({ data: [], error: null } as any)
+      profile.role === "admin" ? supabase.from("personnel").select("*").order("full_name") : supabase.from("personnel").select("*").eq("linked_profile_id", profile.id),
+      supabase.from("leave_requests").select("*, personnel(full_name,war_name,rank)").order("created_at", { ascending: false })
     ]);
-    const errors = [s.error, d.error, a.error, p.error].filter(Boolean);
+    const errors = [s.error, d.error, a.error, p.error, lr.error].filter(Boolean);
     if (errors.length) setNotice("Alguns dados não foram carregados. Confira as políticas e a migração do Supabase.");
     setSchools((s.data || []) as School[]);
     setDemands((d.data || []) as Demand[]);
     setActivities((a.data || []) as Activity[]);
     setUsers((u.data || []) as Profile[]);
     setPersonnel((p.data || []) as Personnel[]);
+    setLeaveRequests((lr.data || []) as LeaveRequest[]);
+    setLeaveEdit(Object.fromEntries(((lr.data || []) as LeaveRequest[]).map(r => [r.id, { status:r.status, sei_process_number:r.sei_process_number || "", sei_status:r.sei_status || "", administrative_note:r.administrative_note || "", decision_note:r.decision_note || "" }])));
     setLoading(false);
   }
 
@@ -221,6 +235,35 @@ export default function App() {
     if (!error) await refresh();
   }
 
+  async function submitLeaveRequest(e: React.FormEvent) {
+    e.preventDefault();
+    if (!supabase || !session?.user?.id) return;
+    const linked = personnel.find(p => p.linked_profile_id === session.user.id && p.status === "Ativo");
+    if (!linked) { setNotice("Sua conta precisa estar vinculada a um cadastro funcional ativo para solicitar afastamento."); return; }
+    if (leaveForm.end_date < leaveForm.start_date) { setNotice("A data final não pode ser anterior à data inicial."); return; }
+    const { error } = await supabase.from("leave_requests").insert({
+      personnel_id: linked.id, requester_profile_id: session.user.id,
+      request_type: leaveForm.request_type, start_date: leaveForm.start_date,
+      end_date: leaveForm.end_date, requester_note: leaveForm.requester_note.trim() || null
+    });
+    setNotice(error ? `Não foi possível enviar a solicitação: ${error.message}` : "Solicitação enviada para análise administrativa.");
+    if (!error) { setLeaveForm({ request_type:"Ferias", start_date:dateToday(), end_date:dateToday(), requester_note:"" }); await refresh(); }
+  }
+
+  async function updateLeaveRequest(id: string) {
+    if (!supabase || profile?.role !== "admin") return;
+    const values = leaveEdit[id];
+    if (!values) return;
+    const { error } = await supabase.from("leave_requests").update({
+      status: values.status, sei_process_number: values.sei_process_number.trim() || null,
+      sei_status: values.sei_status.trim() || null, administrative_note: values.administrative_note.trim() || null,
+      decision_note: values.decision_note.trim() || null,
+      reviewed_by: session.user.id, reviewed_at: new Date().toISOString()
+    }).eq("id", id);
+    setNotice(error ? `Não foi possível atualizar a solicitação: ${error.message}` : "Solicitação atualizada.");
+    if (!error) await refresh();
+  }
+
   async function changeUserRole(user: Profile, nextRole: "admin" | "instructor") {
     if (!supabase || !profile?.is_primary_admin) return;
     if (user.is_primary_admin) { setNotice("A conta do administrador principal não pode ser alterada."); return; }
@@ -260,6 +303,7 @@ export default function App() {
   const menu: {id:Tab; label:string; icon:any}[] = [
     {id:"dashboard",label:"Painel inicial",icon:LayoutDashboard},
     ...(profile.role === "admin" ? [{id:"personnel" as Tab,label:"Gestão de Pessoal",icon:Users}] : []),
+    {id:"leave",label:"Férias, licenças e afastamentos",icon:ClipboardList},
     ...(profile.role === "admin" ? [{id:"schools" as Tab,label:"Escolas",icon:SchoolIcon}] : []),
     {id:"demands",label:profile.role === "admin" ? "Central de demandas" : "Minhas designações",icon:ClipboardList},
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
@@ -337,6 +381,20 @@ export default function App() {
           </div>
         </div>
       </section>}
+      {tab==="leave" && <section>
+        <div className="section-head"><div><h2>{profile.role === "admin" ? "Solicitações de férias, licenças e afastamentos" : "Minhas solicitações"}</h2><p>Registre pedidos e acompanhe a análise administrativa e a tramitação.</p></div><span className="count">{leaveRequests.length} registros</span></div>
+        <div className="panel form demand-form">
+          <h3><Plus size={18}/> Nova solicitação</h3>
+          {personnel.some(p=>p.linked_profile_id===session.user.id && p.status==="Ativo") ? <form onSubmit={submitLeaveRequest}>
+            <div className="form-row"><Field label="Tipo de solicitação"><select value={leaveForm.request_type} onChange={e=>setLeaveForm({...leaveForm,request_type:e.target.value as LeaveRequest["request_type"]})}><option value="Ferias">Férias</option><option value="Licenca">Licença</option><option value="Afastamento">Afastamento</option></select></Field><Field label="Data inicial"><input type="date" required value={leaveForm.start_date} onChange={e=>setLeaveForm({...leaveForm,start_date:e.target.value})}/></Field><Field label="Data final"><input type="date" required min={leaveForm.start_date} value={leaveForm.end_date} onChange={e=>setLeaveForm({...leaveForm,end_date:e.target.value})}/></Field></div>
+            <Field label="Observação do solicitante"><textarea value={leaveForm.requester_note} onChange={e=>setLeaveForm({...leaveForm,requester_note:e.target.value})} placeholder="Informações administrativas fictícias. Não inclua dados médicos ou sensíveis."/></Field>
+            <button className="primary">Enviar solicitação</button>
+          </form> : <div className="info-panel"><AlertCircle size={19}/><div><b>Cadastro funcional ativo necessário</b><p>Para solicitar, sua conta precisa estar vinculada a uma ficha funcional com situação Ativo. Peça ao administrador para conferir o vínculo e a situação.</p></div></div>}
+        </div>
+        <div className="panel table-panel"><div className="users-heading"><div><h3>{profile.role === "admin" ? "Fila administrativa" : "Histórico de solicitações"}</h3><p>{profile.role === "admin" ? "Analise os pedidos e registre o andamento do processo SEI/GDF." : "Acompanhe a situação dos seus pedidos."}</p></div></div>
+          {leaveRequests.length===0 ? <Empty text="Nenhuma solicitação registrada."/> : <div className="table-wrap"><table><thead><tr><th>Policial</th><th>Tipo</th><th>Período</th><th>Situação</th>{profile.role === "admin" && <th>Tramitação e análise</th>}</tr></thead><tbody>{leaveRequests.map(r=><tr key={r.id}><td><b>{r.personnel?.full_name || "Cadastro funcional"}</b><small>{r.personnel?.rank || ""}</small>{r.requester_note && <small>{r.requester_note}</small>}</td><td>{r.request_type}</td><td>{r.start_date} a {r.end_date}</td><td><Status value={r.status}/>{r.sei_process_number && <small>SEI: {r.sei_process_number}</small>}{r.sei_status && <small>{r.sei_status}</small>}{r.decision_note && <small>{r.decision_note}</small>}</td>{profile.role === "admin" && <td><div className="form"><Field label="Situação"><select value={leaveEdit[r.id]?.status || r.status} onChange={e=>setLeaveEdit({...leaveEdit,[r.id]:{...leaveEdit[r.id],status:e.target.value}})}>{["Solicitada","Em analise","Aguardando documentacao","Em tramitacao SEI","Deferida","Indeferida","Cancelada"].map(v=><option key={v}>{v}</option>)}</select></Field><Field label="Número do processo SEI/GDF"><input value={leaveEdit[r.id]?.sei_process_number || ""} onChange={e=>setLeaveEdit({...leaveEdit,[r.id]:{...leaveEdit[r.id],sei_process_number:e.target.value}})} placeholder="Número fictício"/></Field><Field label="Andamento administrativo"><input value={leaveEdit[r.id]?.sei_status || ""} onChange={e=>setLeaveEdit({...leaveEdit,[r.id]:{...leaveEdit[r.id],sei_status:e.target.value}})} placeholder="Ex.: encaminhado para análise"/></Field><Field label="Observação administrativa"><input value={leaveEdit[r.id]?.administrative_note || ""} onChange={e=>setLeaveEdit({...leaveEdit,[r.id]:{...leaveEdit[r.id],administrative_note:e.target.value}})}/></Field><Field label="Fundamentação/observação da decisão"><input value={leaveEdit[r.id]?.decision_note || ""} onChange={e=>setLeaveEdit({...leaveEdit,[r.id]:{...leaveEdit[r.id],decision_note:e.target.value}})}/></Field><button className="small-primary" onClick={()=>updateLeaveRequest(r.id)}>Salvar análise</button></div></td>}</tr>)}</tbody></table></div>}
+        </div>
+      </section>}
       {tab==="schools" && <section>
         <div className="section-head"><div><h2>Cadastro de escolas</h2><p>Cadastro único para relacionar demandas e turmas.</p></div></div>
         <div className="two-col"><form className="panel form" onSubmit={addSchool}><h3><Plus size={18}/> Nova escola</h3><Field label="Nome da escola"><input required value={schoolName} onChange={e=>setSchoolName(e.target.value)} placeholder="Escola Exemplo" /></Field><div className="form-row"><Field label="Região administrativa"><input required value={region} onChange={e=>setRegion(e.target.value)} /></Field><Field label="Tipo"><select value={schoolType} onChange={e=>setSchoolType(e.target.value)}><option>Pública</option><option>Privada</option><option>Federal</option></select></Field></div><Field label="Endereço fictício"><input value={address} onChange={e=>setAddress(e.target.value)} placeholder="Endereço para simulação" /></Field><button className="primary">Salvar escola</button></form>
@@ -366,7 +424,7 @@ export default function App() {
         </div>
         <div className="panel form user-create-note"><h3><Plus size={18}/> Como adicionar uma pessoa</h3><ol><li>A pessoa acessa a tela inicial e escolhe “Criar conta”.</li><li>Após confirmar o e-mail, se essa exigência estiver ativa, ela entra no sistema.</li><li>O cadastro aparece nesta lista com o perfil inicial de instrutor.</li><li>Você escolhe se mantém como instrutor ou promove a administrador.</li></ol><p className="muted">Esta versão não envia convites por e-mail. A criação da conta é feita pelo próprio usuário.</p></div>
       </section>}
-      <footer>PROERD DIGITAL · PoC 0.2 · Dados fictícios · Não é sistema oficial da PMDF</footer>
+      <footer>PROERD DIGITAL · PoC 0.3 · Dados fictícios · Não é sistema oficial da PMDF</footer>
     </main>
   </div>;
 }

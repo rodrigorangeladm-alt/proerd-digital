@@ -11,6 +11,8 @@ export type Profile = {
   full_name: string;
   role: "admin" | "instructor";
   rank: string | null;
+  email?: string | null;
+  is_primary_admin?: boolean;
 };
 
 export type School = {

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Activity as ActivityIcon, AlertCircle, ArrowRight, BookOpen, Check, CheckCircle2,
+  Activity as ActivityIcon, AlertCircle, ArrowRight, BookOpen, Check, CheckCircle2, CalendarDays, Clock,
   ClipboardList, GraduationCap, LayoutDashboard, LogOut, Plus, RefreshCw, School as SchoolIcon, Car,
   ShieldCheck, Users, X
 } from "lucide-react";
 import { configured, supabase, type Activity, type Demand, type Profile, type School } from "./lib";
 
-type Tab = "dashboard" | "personnel" | "leave" | "vehicles" | "vehicleUsage" | "schools" | "demands" | "activities" | "reports" | "users";
+type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "schools" | "demands" | "activities" | "reports" | "users";
 type Personnel = {
   id: string;
   full_name: string;
@@ -52,6 +52,7 @@ type VehicleUsage = {
   personnel?: { full_name: string; war_name: string | null; rank: string } | null;
 };
 
+type InstructorAvailability = { id?: string; profile_id: string; weekday: number; start_time: string; end_time: string; is_available: boolean; notes: string | null };
 type LeaveRequest = {
   id: string; personnel_id: string; requester_profile_id: string;
   request_type: "Ferias" | "Licenca" | "Afastamento"; start_date: string; end_date: string;
@@ -77,6 +78,8 @@ export default function App() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+  const [instructorAvailability, setInstructorAvailability] = useState<InstructorAvailability[]>([]);
+  const [availabilityDraft, setAvailabilityDraft] = useState<Record<number, {start_time:string;end_time:string;is_available:boolean;notes:string}>>({});
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [vehicleUsages, setVehicleUsages] = useState<VehicleUsage[]>([]);
   const [vehicleReservations, setVehicleReservations] = useState<VehicleReservation[]>([]);
@@ -146,7 +149,7 @@ export default function App() {
   async function refresh() {
     if (!supabase || !profile) return;
     setLoading(true);
-    const [s, d, a, u, p, lr, v, vu, vr] = await Promise.all([
+    const [s, d, a, u, p, lr, v, vu, vr, av] = await Promise.all([
       supabase.from("schools").select("*").order("name"),
       supabase.from("demands").select("*, schools(name,region), assignee:profiles!demands_assigned_to_fkey(full_name)").order("created_at", { ascending: false }),
       supabase.from("activities").select("*, demands(protocol,class_name,schools(name)), instructor:profiles!activities_instructor_id_fkey(full_name)").order("created_at", { ascending: false }),
@@ -155,9 +158,10 @@ export default function App() {
       supabase.from("leave_requests").select("*, personnel(full_name,war_name,rank)").order("created_at", { ascending: false }),
       supabase.from("vehicles").select("*").order("fleet_number"),
       supabase.from("vehicle_usage").select("*, vehicle:vehicles(fleet_number,make,model,plate), personnel(full_name,war_name,rank)").order("departure_at", { ascending: false }),
-      supabase.from("vehicle_reservations").select("*, vehicle:vehicles(fleet_number,make,model,plate), personnel(full_name,war_name,rank)").order("scheduled_start", { ascending: false })
+      supabase.from("vehicle_reservations").select("*, vehicle:vehicles(fleet_number,make,model,plate), personnel(full_name,war_name,rank)").order("scheduled_start", { ascending: false }),
+      supabase.from("instructor_weekly_availability").select("*").order("weekday")
     ]);
-    const errors = [s.error, d.error, a.error, p.error, lr.error, v.error, vu.error, vr.error].filter(Boolean);
+    const errors = [s.error, d.error, a.error, p.error, lr.error, v.error, vu.error, vr.error, av.error].filter(Boolean);
     if (errors.length) setNotice("Alguns dados não foram carregados. Confira as políticas e a migração do Supabase.");
     setSchools((s.data || []) as School[]);
     setDemands((d.data || []) as Demand[]);
@@ -168,6 +172,14 @@ export default function App() {
     setVehicles((v.data || []) as Vehicle[]);
     setVehicleUsages((vu.data || []) as VehicleUsage[]);
     setVehicleReservations((vr.data || []) as VehicleReservation[]);
+    setInstructorAvailability((av.data || []) as InstructorAvailability[]);
+    const ownAvailability = (av.data || []).filter((row:any) => row.profile_id === profile.id);
+    const draft: Record<number,{start_time:string;end_time:string;is_available:boolean;notes:string}> = {};
+    for (let day=0; day<7; day++) {
+      const row = ownAvailability.find((x:any)=>x.weekday===day);
+      draft[day] = row ? {start_time:row.start_time?.slice(0,5) || "08:00",end_time:row.end_time?.slice(0,5) || "17:00",is_available:row.is_available,notes:row.notes || ""} : {start_time:"08:00",end_time:"17:00",is_available:day>=1 && day<=5,notes:""};
+    }
+    setAvailabilityDraft(draft);
     setLeaveEdit(Object.fromEntries(((lr.data || []) as LeaveRequest[]).map(r => [r.id, { status:r.status, sei_process_number:r.sei_process_number || "", sei_status:r.sei_status || "", administrative_note:r.administrative_note || "", decision_note:r.decision_note || "" }])));
     setLoading(false);
   }
@@ -476,6 +488,24 @@ export default function App() {
     await refresh();
   }
 
+  async function saveAvailability() {
+    if (!supabase || !profile) return;
+    const rows = Object.entries(availabilityDraft).map(([weekday, value]) => ({
+      profile_id: profile.id, weekday: Number(weekday), start_time: value.start_time,
+      end_time: value.end_time, is_available: value.is_available, notes: value.notes.trim() || null,
+      updated_at: new Date().toISOString()
+    }));
+    for (const row of rows) {
+      if (row.is_available && row.end_time <= row.start_time) {
+        setNotice(`Confira os horários de ${weekdayNames[row.weekday]}: o término deve ser posterior ao início.`);
+        return;
+      }
+    }
+    const { error } = await supabase.from("instructor_weekly_availability").upsert(rows, { onConflict: "profile_id,weekday" });
+    setNotice(error ? `Não foi possível salvar a disponibilidade: ${error.message}` : "Disponibilidade semanal salva.");
+    if (!error) await refresh();
+  }
+
   async function submitLeaveRequest(e: React.FormEvent) {
     e.preventDefault();
     if (!supabase || !session?.user?.id) return;
@@ -544,6 +574,7 @@ export default function App() {
   const menu: {id:Tab; label:string; icon:any}[] = [
     {id:"dashboard",label:"Painel inicial",icon:LayoutDashboard},
     ...(profile.role === "admin" ? [{id:"personnel" as Tab,label:"Gestão de Pessoal",icon:Users}] : []),
+    {id:"instructors",label:profile.role === "admin" ? "Disponibilidade dos instrutores" : "Minha disponibilidade",icon:CalendarDays},
     {id:"leave",label:"Férias, licenças e afastamentos",icon:ClipboardList},
     ...(profile.role === "admin" ? [{id:"vehicles" as Tab,label:"Gestão de Viaturas",icon:Car}] : []),
     {id:"vehicleUsage" as Tab,label:"Histórico de utilização",icon:ClipboardList},
@@ -624,6 +655,24 @@ export default function App() {
           </div>
         </div>
       </section>}
+      {tab==="instructors" && <section>
+        <div className="section-head"><div><h2>{profile.role === "admin" ? "Disponibilidade e carga de trabalho" : "Minha disponibilidade semanal"}</h2><p>Informe os períodos habituais de disponibilidade. Férias, licenças e afastamentos continuam sendo registrados no módulo próprio.</p></div></div>
+        {profile.role === "instructor" ? <>
+          <div className="info-panel"><CalendarDays size={19}/><div><b>Agenda semanal</b><p>Marque os dias em que costuma estar disponível e informe a faixa de horário. Esta informação auxilia a distribuição, mas não substitui a confirmação do instrutor.</p></div></div>
+          <div className="panel form">
+            <div className="table-wrap"><table><thead><tr><th>Dia</th><th>Disponível</th><th>Início</th><th>Término</th><th>Observações</th></tr></thead><tbody>{weekdayNames.map((day,index)=><tr key={day}><td><b>{day}</b></td><td><input aria-label={`Disponível ${day}`} type="checkbox" checked={availabilityDraft[index]?.is_available ?? false} onChange={e=>setAvailabilityDraft({...availabilityDraft,[index]:{...(availabilityDraft[index]||{start_time:"08:00",end_time:"17:00",notes:""}),is_available:e.target.checked}})}/></td><td><input type="time" disabled={!availabilityDraft[index]?.is_available} value={availabilityDraft[index]?.start_time || "08:00"} onChange={e=>setAvailabilityDraft({...availabilityDraft,[index]:{...availabilityDraft[index],start_time:e.target.value}})}/></td><td><input type="time" disabled={!availabilityDraft[index]?.is_available} value={availabilityDraft[index]?.end_time || "17:00"} onChange={e=>setAvailabilityDraft({...availabilityDraft,[index]:{...availabilityDraft[index],end_time:e.target.value}})}/></td><td><input value={availabilityDraft[index]?.notes || ""} onChange={e=>setAvailabilityDraft({...availabilityDraft,[index]:{...availabilityDraft[index],notes:e.target.value}})} placeholder="Opcional"/></td></tr>)}</tbody></table></div>
+            <button className="primary" type="button" onClick={saveAvailability}>Salvar minha disponibilidade</button>
+          </div>
+          <div className="panel"><h3>Ausências e afastamentos</h3><p className="muted">Para registrar férias, licenças ou afastamentos, utilize o módulo “Férias, licenças e afastamentos”. Solicitações deferidas serão consideradas na análise administrativa.</p><button className="small-secondary" onClick={()=>setTab("leave")}>Abrir solicitações</button></div>
+        </> : <>
+          <div className="stats"><Stat label="Instrutores cadastrados" value={users.filter(u=>u.role==="instructor").length} icon={Users}/><Stat label="Disponíveis hoje" value={users.filter(u=>u.role==="instructor" && personnel.some(p=>p.linked_profile_id===u.id && p.status==="Ativo") && instructorAvailability.some(a=>a.profile_id===u.id && a.weekday===new Date().getDay() && a.is_available) && !leaveRequests.some(l=>personnel.some(p=>p.id===l.personnel_id && p.linked_profile_id===u.id) && l.status==="Deferida" && l.start_date<=dateToday() && l.end_date>=dateToday())).length} icon={CheckCircle2}/><Stat label="Designações em aberto" value={demands.filter(d=>["Aguardando aceite","Aceita"].includes(d.status)).length} icon={ClipboardList}/></div>
+          <div className="panel table-panel"><div className="users-heading"><div><h3>Quadro de instrutores</h3><p>Resumo calculado a partir das designações e atividades registradas. A disponibilidade semanal é informativa.</p></div><button className="small-primary" onClick={refresh}><RefreshCw size={13}/> Atualizar</button></div>
+            {users.filter(u=>u.role==="instructor").length===0 ? <Empty text="Nenhum instrutor cadastrado."/> : <div className="table-wrap"><table><thead><tr><th>Instrutor</th><th>Situação funcional</th><th>Disponibilidade hoje</th><th>Designações em aberto</th><th>Atividades registradas</th><th>Ausência deferida hoje</th></tr></thead><tbody>{users.filter(u=>u.role==="instructor").map(u=>{const person=personnel.find(p=>p.linked_profile_id===u.id);const day=instructorAvailability.find(a=>a.profile_id===u.id && a.weekday===new Date().getDay());const open=demands.filter(d=>d.assigned_to===u.id && ["Aguardando aceite","Aceita"].includes(d.status)).length;const done=activities.filter(a=>(a as any).instructor_id===u.id).length;const absent=leaveRequests.some(l=>l.personnel_id===person?.id && l.status==="Deferida" && l.start_date<=dateToday() && l.end_date>=dateToday());return <tr key={u.id}><td><b>{u.full_name}</b><small>{person?.rank || "Sem ficha funcional vinculada"}</small></td><td>{person?.status || "Sem cadastro"}</td><td>{absent?"Indisponível · ausência deferida":day?.is_available?`${day.start_time.slice(0,5)} às ${day.end_time.slice(0,5)}`:"Não informado / indisponível"}</td><td>{open}</td><td>{done}</td><td>{absent?"Sim":"Não"}</td></tr>})}</tbody></table></div>}
+          </div>
+          <div className="panel"><h3>Gestão de ausências</h3><p className="muted">Consulte e analise férias, licenças e afastamentos no módulo específico. Somente pedidos deferidos são tratados como ausência confirmada neste quadro.</p><button className="small-secondary" onClick={()=>setTab("leave")}>Abrir férias, licenças e afastamentos</button></div>
+        </>}
+      </section>}
+
       {tab==="leave" && <section>
         <div className="section-head"><div><h2>{profile.role === "admin" ? "Solicitações de férias, licenças e afastamentos" : "Minhas solicitações"}</h2><p>Registre pedidos e acompanhe a análise administrativa e a tramitação.</p></div><span className="count">{leaveRequests.length} registros</span></div>
         <div className="panel form demand-form">
@@ -752,10 +801,12 @@ export default function App() {
         </div>
         <div className="panel form user-create-note"><h3><Plus size={18}/> Como adicionar uma pessoa</h3><ol><li>A pessoa acessa a tela inicial e escolhe “Criar conta”.</li><li>Após confirmar o e-mail, se essa exigência estiver ativa, ela entra no sistema.</li><li>O cadastro aparece nesta lista com o perfil inicial de instrutor.</li><li>Você escolhe se mantém como instrutor ou promove a administrador.</li></ol><p className="muted">Esta versão não envia convites por e-mail. A criação da conta é feita pelo próprio usuário.</p></div>
       </section>}
-      <footer>PROERD DIGITAL · PoC 0.6 · Dados fictícios · Não é sistema oficial da PMDF</footer>
+      <footer>PROERD DIGITAL · PoC 0.7 · Dados fictícios · Não é sistema oficial da PMDF</footer>
     </main>
   </div>;
 }
+
+const weekdayNames = ["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
 
 function Brand(){return <div className="brand"><div className="brand-mark"><ShieldCheck size={23}/></div><div><b>PROERD DIGITAL</b><small>PLATAFORMA INTEGRADA</small></div></div>}
 function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="field"><span>{label}</span>{children}</label>}

@@ -27,6 +27,14 @@ type Vehicle = {
   status: "Disponivel" | "Em uso" | "Em manutencao" | "Inativa";
   current_odometer: number; notes: string | null; created_at?: string;
 };
+type VehicleReservation = {
+  id: string; vehicle_id: string; personnel_id: string; destination: string; purpose: string;
+  scheduled_start: string; scheduled_end: string; requester_note: string | null;
+  status: "Solicitada" | "Autorizada" | "Indeferida" | "Cancelada" | "Utilizada";
+  administrative_note: string | null; reviewed_at: string | null; sgpol_registered: boolean;
+  vehicle?: { fleet_number: string | null; make: string | null; model: string; plate: string | null } | null;
+  personnel?: { full_name: string; war_name: string | null; rank: string } | null;
+};
 type VehicleUsage = {
   id: string;
   vehicle_id: string;
@@ -39,6 +47,7 @@ type VehicleUsage = {
   odometer_in: number | null;
   status: "Em andamento" | "Finalizada" | "Cancelada";
   notes: string | null;
+  return_notes?: string | null;
   vehicle?: { fleet_number: string | null; make: string | null; model: string; plate: string | null } | null;
   personnel?: { full_name: string; war_name: string | null; rank: string } | null;
 };
@@ -70,11 +79,15 @@ export default function App() {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [vehicleUsages, setVehicleUsages] = useState<VehicleUsage[]>([]);
+  const [vehicleReservations, setVehicleReservations] = useState<VehicleReservation[]>([]);
+  const [reservationForm, setReservationForm] = useState({ vehicle_id: "", destination: "", purpose: "", scheduled_start: dateTimeLocalNow(), scheduled_end: "", requester_note: "" });
+  const [reservationStartValues, setReservationStartValues] = useState<Record<string,{departure_at:string;odometer_out:string;sgpol_registered:boolean;notes:string}>>({});
+  const [reservationReviewNotes, setReservationReviewNotes] = useState<Record<string,string>>({});
   const [usageForm, setUsageForm] = useState({
     vehicle_id: "", personnel_id: "", destination: "", purpose: "",
     departure_at: dateTimeLocalNow(), odometer_out: "", notes: ""
   });
-  const [usageReturnValues, setUsageReturnValues] = useState<Record<string, { return_at: string; odometer_in: string }>>({});
+  const [usageReturnValues, setUsageReturnValues] = useState<Record<string, { return_at: string; odometer_in: string; return_notes?: string }>>({});
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [editingVehicle, setEditingVehicle] = useState<string | null>(null);
   const emptyVehicleForm = { fleet_number: "", plate: "", make: "", model: "", manufacture_year: "", model_year: "", color: "", status: "Disponivel" as Vehicle["status"], current_odometer: "0", notes: "" };
@@ -133,7 +146,7 @@ export default function App() {
   async function refresh() {
     if (!supabase || !profile) return;
     setLoading(true);
-    const [s, d, a, u, p, lr, v, vu] = await Promise.all([
+    const [s, d, a, u, p, lr, v, vu, vr] = await Promise.all([
       supabase.from("schools").select("*").order("name"),
       supabase.from("demands").select("*, schools(name,region), assignee:profiles!demands_assigned_to_fkey(full_name)").order("created_at", { ascending: false }),
       supabase.from("activities").select("*, demands(protocol,class_name,schools(name)), instructor:profiles!activities_instructor_id_fkey(full_name)").order("created_at", { ascending: false }),
@@ -141,9 +154,10 @@ export default function App() {
       profile.role === "admin" ? supabase.from("personnel").select("*").order("full_name") : supabase.from("personnel").select("*").eq("linked_profile_id", profile.id),
       supabase.from("leave_requests").select("*, personnel(full_name,war_name,rank)").order("created_at", { ascending: false }),
       supabase.from("vehicles").select("*").order("fleet_number"),
-      supabase.from("vehicle_usage").select("*, vehicle:vehicles(fleet_number,make,model,plate), personnel(full_name,war_name,rank)").order("departure_at", { ascending: false })
+      supabase.from("vehicle_usage").select("*, vehicle:vehicles(fleet_number,make,model,plate), personnel(full_name,war_name,rank)").order("departure_at", { ascending: false }),
+      supabase.from("vehicle_reservations").select("*, vehicle:vehicles(fleet_number,make,model,plate), personnel(full_name,war_name,rank)").order("scheduled_start", { ascending: false })
     ]);
-    const errors = [s.error, d.error, a.error, p.error, lr.error, v.error, vu.error].filter(Boolean);
+    const errors = [s.error, d.error, a.error, p.error, lr.error, v.error, vu.error, vr.error].filter(Boolean);
     if (errors.length) setNotice("Alguns dados não foram carregados. Confira as políticas e a migração do Supabase.");
     setSchools((s.data || []) as School[]);
     setDemands((d.data || []) as Demand[]);
@@ -153,6 +167,7 @@ export default function App() {
     setLeaveRequests((lr.data || []) as LeaveRequest[]);
     setVehicles((v.data || []) as Vehicle[]);
     setVehicleUsages((vu.data || []) as VehicleUsage[]);
+    setVehicleReservations((vr.data || []) as VehicleReservation[]);
     setLeaveEdit(Object.fromEntries(((lr.data || []) as LeaveRequest[]).map(r => [r.id, { status:r.status, sei_process_number:r.sei_process_number || "", sei_status:r.sei_status || "", administrative_note:r.administrative_note || "", decision_note:r.decision_note || "" }])));
     setLoading(false);
   }
@@ -325,6 +340,50 @@ export default function App() {
     if (!error) await refresh();
   }
 
+  async function submitVehicleReservation(e: React.FormEvent) {
+    e.preventDefault();
+    if (!supabase || !profile) return;
+    const person = personnel.find(p => p.linked_profile_id === profile.id && p.status === "Ativo");
+    if (!person) { setNotice("Sua conta precisa estar vinculada a um cadastro funcional ativo."); return; }
+    if (!reservationForm.scheduled_end || new Date(reservationForm.scheduled_end) <= new Date(reservationForm.scheduled_start)) {
+      setNotice("Informe um horário final posterior ao horário inicial."); return;
+    }
+    const { error } = await supabase.rpc("request_vehicle_reservation", {
+      p_vehicle_id: reservationForm.vehicle_id, p_personnel_id: person.id,
+      p_destination: reservationForm.destination.trim(), p_purpose: reservationForm.purpose.trim(),
+      p_scheduled_start: new Date(reservationForm.scheduled_start).toISOString(),
+      p_scheduled_end: new Date(reservationForm.scheduled_end).toISOString(),
+      p_requester_note: reservationForm.requester_note.trim() || null
+    });
+    setNotice(error ? `Não foi possível enviar a pré-reserva: ${error.message}` : "Pré-reserva enviada para análise administrativa.");
+    if (!error) {
+      setReservationForm({vehicle_id:"",destination:"",purpose:"",scheduled_start:dateTimeLocalNow(),scheduled_end:"",requester_note:""});
+      await refresh();
+    }
+  }
+
+  async function reviewVehicleReservation(id: string, decision: "Autorizada" | "Indeferida") {
+    if (!supabase || profile?.role !== "admin") return;
+    const note = (reservationReviewNotes[id] || "").trim();
+    if (decision === "Indeferida" && !note) { setNotice("Informe a justificativa antes de indeferir."); return; }
+    const { error } = await supabase.rpc("review_vehicle_reservation", {p_reservation_id:id,p_decision:decision,p_administrative_note:note || null});
+    setNotice(error ? `Não foi possível analisar a solicitação: ${error.message}` : `Pré-reserva ${decision.toLowerCase()} com sucesso.`);
+    if (!error) await refresh();
+  }
+
+  async function startReservedVehicleUsage(id: string) {
+    if (!supabase) return;
+    const values = reservationStartValues[id];
+    if (!values || !values.odometer_out) { setNotice("Informe a quilometragem de saída."); return; }
+    if (!values.sgpol_registered) { setNotice("Confirme o registro no SGPol/PMDF, aba Motorista/Vistoria."); return; }
+    const { error } = await supabase.rpc("start_reserved_vehicle_usage", {
+      p_reservation_id:id, p_departure_at:new Date(values.departure_at).toISOString(),
+      p_odometer_out:Number(values.odometer_out), p_sgpol_registered:true, p_notes:values.notes.trim() || null
+    });
+    setNotice(error ? `Não foi possível registrar a saída: ${error.message}` : "Saída registrada. A viatura agora consta como Em uso.");
+    if (!error) await refresh();
+  }
+
   async function startVehicleUsage(e: React.FormEvent) {
     e.preventDefault();
     if (!supabase || !profile) return;
@@ -389,7 +448,8 @@ export default function App() {
     const { error } = await supabase.rpc("finish_vehicle_usage", {
       p_usage_id: id,
       p_return_at: returnAt,
-      p_odometer_in: odometer
+      p_odometer_in: odometer,
+      p_return_notes: values.return_notes?.trim() || null
     });
     if (error) {
       setNotice(`Não foi possível finalizar a utilização: ${error.message}`);
@@ -624,31 +684,30 @@ export default function App() {
 
       {tab==="vehicleUsage" && <section>
         <div className="section-head"><div><h2>Histórico de utilização de viaturas</h2><p>{profile.role==="admin" ? "Gerencie saídas, retornos e registros de toda a equipe." : "Consulte a disponibilidade, registre sua saída e informe o retorno da viatura."} Utilize somente dados fictícios nesta PoC.</p></div><span className="count">{vehicleUsages.length} registros</span></div>
-        <div className="panel form demand-form">
-          <h3><Plus size={18}/> {profile.role==="admin" ? "Registrar saída de viatura" : "Solicitar utilização de viatura"}</h3>
-          {profile.role==="instructor" && !personnel.some(p=>p.linked_profile_id===profile.id && p.status==="Ativo") && <p className="notice">Sua conta ainda não está vinculada a um cadastro funcional ativo. Solicite ao administrador o vínculo antes de utilizar uma viatura.</p>}
-          <form onSubmit={startVehicleUsage}>
-            <div className="form-row">
-              <Field label="Viatura"><select required value={usageForm.vehicle_id} onChange={e=>{
-                const selected = vehicles.find(v=>v.id===e.target.value);
-                setUsageForm({...usageForm,vehicle_id:e.target.value,odometer_out:selected ? String(selected.current_odometer) : ""});
-              }}><option value="">Selecione uma viatura disponível</option>{vehicles.filter(v=>v.status==="Disponivel").map(v=><option key={v.id} value={v.id}>{v.fleet_number || "Sem frota"} · {v.make || ""} {v.model} · {v.plate || "Sem placa"}</option>)}</select></Field>
-              {profile.role === "admin"
-                ? <Field label="Policial responsável"><select required value={usageForm.personnel_id} onChange={e=>setUsageForm({...usageForm,personnel_id:e.target.value})}><option value="">Selecione o policial</option>{personnel.filter(p=>p.status==="Ativo").map(p=><option key={p.id} value={p.id}>{p.rank} · {p.full_name}</option>)}</select></Field>
-                : <Field label="Policial responsável"><input readOnly value={personnel.find(p=>p.linked_profile_id===profile.id && p.status==="Ativo")?.full_name || "Cadastro funcional não vinculado"} /></Field>}
-            </div>
-            <div className="form-row">
-              <Field label="Destino"><input required value={usageForm.destination} onChange={e=>setUsageForm({...usageForm,destination:e.target.value})} placeholder="Destino fictício"/></Field>
-              <Field label="Finalidade"><input required value={usageForm.purpose} onChange={e=>setUsageForm({...usageForm,purpose:e.target.value})} placeholder="Finalidade do deslocamento"/></Field>
-            </div>
-            <div className="form-row">
-              <Field label="Data e hora da saída"><input type="datetime-local" required value={usageForm.departure_at} onChange={e=>setUsageForm({...usageForm,departure_at:e.target.value})}/></Field>
-              <Field label="Quilometragem de saída"><input type="number" min="0" step="0.1" required value={usageForm.odometer_out} onChange={e=>setUsageForm({...usageForm,odometer_out:e.target.value})}/></Field>
-            </div>
-            <Field label="Observações"><textarea value={usageForm.notes} onChange={e=>setUsageForm({...usageForm,notes:e.target.value})} placeholder="Observações administrativas fictícias."/></Field>
-            <button className="primary" disabled={!vehicles.some(v=>v.status==="Disponivel") || (profile.role==="admin" ? !personnel.some(p=>p.status==="Ativo") : !personnel.some(p=>p.linked_profile_id===profile.id && p.status==="Ativo"))}>{profile.role==="admin" ? "Registrar saída" : "Solicitar e registrar saída"}</button>
-          </form>
-        </div>
+        {profile.role === "instructor" ? <>
+          <div className="panel form demand-form">
+            <h3><Plus size={18}/> Solicitar pré-reserva de viatura</h3>
+            {!personnel.some(p=>p.linked_profile_id===profile.id && p.status==="Ativo") && <p className="notice">Sua conta ainda não está vinculada a um cadastro funcional ativo. Solicite o vínculo ao administrador.</p>}
+            <form onSubmit={submitVehicleReservation}>
+              <div className="form-row"><Field label="Viatura"><select required value={reservationForm.vehicle_id} onChange={e=>setReservationForm({...reservationForm,vehicle_id:e.target.value})}><option value="">Selecione uma viatura disponível</option>{vehicles.filter(v=>v.status==="Disponivel").map(v=><option key={v.id} value={v.id}>{v.fleet_number || "Sem frota"} · {v.make || ""} {v.model} · {v.plate || "Sem placa"}</option>)}</select></Field><Field label="Destino"><input required value={reservationForm.destination} onChange={e=>setReservationForm({...reservationForm,destination:e.target.value})}/></Field></div>
+              <Field label="Finalidade"><input required value={reservationForm.purpose} onChange={e=>setReservationForm({...reservationForm,purpose:e.target.value})}/></Field>
+              <div className="form-row"><Field label="Início previsto"><input type="datetime-local" required value={reservationForm.scheduled_start} onChange={e=>setReservationForm({...reservationForm,scheduled_start:e.target.value})}/></Field><Field label="Término previsto"><input type="datetime-local" required min={reservationForm.scheduled_start} value={reservationForm.scheduled_end} onChange={e=>setReservationForm({...reservationForm,scheduled_end:e.target.value})}/></Field></div>
+              <Field label="Observação do solicitante"><textarea value={reservationForm.requester_note} onChange={e=>setReservationForm({...reservationForm,requester_note:e.target.value})}/></Field>
+              <button className="primary" disabled={!vehicles.some(v=>v.status==="Disponivel") || !personnel.some(p=>p.linked_profile_id===profile.id && p.status==="Ativo")}>Enviar pré-reserva</button>
+            </form>
+          </div>
+          <div className="panel table-panel"><div className="users-heading"><div><h3>Minhas pré-reservas</h3><p>A saída somente poderá ser registrada após autorização administrativa e confirmação do SGPol.</p></div></div>
+            {vehicleReservations.length===0 ? <Empty text="Nenhuma pré-reserva registrada."/> : <div className="table-wrap"><table><thead><tr><th>Viatura / período</th><th>Destino / finalidade</th><th>Situação / análise</th><th>Saída autorizada</th></tr></thead><tbody>{vehicleReservations.map(r=><tr key={r.id}>
+              <td><b>{r.vehicle?.fleet_number || "Viatura"} · {r.vehicle?.model || ""}</b><small>{new Date(r.scheduled_start).toLocaleString("pt-BR")} a {new Date(r.scheduled_end).toLocaleString("pt-BR")}</small></td>
+              <td>{r.destination}<small>{r.purpose}</small>{r.requester_note && <small>{r.requester_note}</small>}</td>
+              <td><Status value={r.status}/>{r.administrative_note && <small>Administração: {r.administrative_note}</small>}</td>
+              <td>{r.status==="Autorizada" ? <div className="form"><Field label="Data e hora da saída"><input type="datetime-local" value={reservationStartValues[r.id]?.departure_at || dateTimeLocalNow()} onChange={e=>setReservationStartValues({...reservationStartValues,[r.id]:{departure_at:e.target.value,odometer_out:reservationStartValues[r.id]?.odometer_out || String(vehicles.find(v=>v.id===r.vehicle_id)?.current_odometer ?? ""),sgpol_registered:reservationStartValues[r.id]?.sgpol_registered || false,notes:reservationStartValues[r.id]?.notes || ""}})}/></Field><Field label="Quilometragem de saída"><input type="number" min="0" step="0.1" value={reservationStartValues[r.id]?.odometer_out ?? String(vehicles.find(v=>v.id===r.vehicle_id)?.current_odometer ?? "")} onChange={e=>setReservationStartValues({...reservationStartValues,[r.id]:{departure_at:reservationStartValues[r.id]?.departure_at || dateTimeLocalNow(),odometer_out:e.target.value,sgpol_registered:reservationStartValues[r.id]?.sgpol_registered || false,notes:reservationStartValues[r.id]?.notes || ""}})}/></Field><label className="checkline"><input type="checkbox" checked={reservationStartValues[r.id]?.sgpol_registered || false} onChange={e=>setReservationStartValues({...reservationStartValues,[r.id]:{departure_at:reservationStartValues[r.id]?.departure_at || dateTimeLocalNow(),odometer_out:reservationStartValues[r.id]?.odometer_out || String(vehicles.find(v=>v.id===r.vehicle_id)?.current_odometer ?? ""),sgpol_registered:e.target.checked,notes:reservationStartValues[r.id]?.notes || ""}})}/> Confirmo que registrei a viatura no SGPol/PMDF, aba Motorista/Vistoria.</label><Field label="Observações de saída"><input value={reservationStartValues[r.id]?.notes || ""} onChange={e=>setReservationStartValues({...reservationStartValues,[r.id]:{departure_at:reservationStartValues[r.id]?.departure_at || dateTimeLocalNow(),odometer_out:reservationStartValues[r.id]?.odometer_out || String(vehicles.find(v=>v.id===r.vehicle_id)?.current_odometer ?? ""),sgpol_registered:reservationStartValues[r.id]?.sgpol_registered || false,notes:e.target.value}})}/></Field><button className="small-primary" disabled={!reservationStartValues[r.id]?.sgpol_registered} onClick={()=>startReservedVehicleUsage(r.id)}>Registrar saída</button></div> : "—"}</td>
+            </tr>)}</tbody></table></div>}
+          </div>
+        </> : null}
+        {profile.role === "admin" && <div className="panel table-panel"><div className="users-heading"><div><h3>Fila de pré-reservas</h3><p>Verifique conflitos e disponibilidade antes de autorizar. O indeferimento exige justificativa.</p></div></div>
+          {vehicleReservations.length===0 ? <Empty text="Nenhuma pré-reserva recebida."/> : <div className="table-wrap"><table><thead><tr><th>Solicitante</th><th>Viatura / período</th><th>Destino / finalidade</th><th>Análise administrativa</th></tr></thead><tbody>{vehicleReservations.map(r=><tr key={r.id}><td><b>{r.personnel?.full_name || "Policial"}</b><small>{r.personnel?.rank || ""}</small></td><td><b>{r.vehicle?.fleet_number || "Viatura"} · {r.vehicle?.model || ""}</b><small>{new Date(r.scheduled_start).toLocaleString("pt-BR")} a {new Date(r.scheduled_end).toLocaleString("pt-BR")}</small></td><td>{r.destination}<small>{r.purpose}</small></td><td>{r.status==="Solicitada" ? <div className="form"><Field label="Justificativa / observação"><textarea value={reservationReviewNotes[r.id] || ""} onChange={e=>setReservationReviewNotes({...reservationReviewNotes,[r.id]:e.target.value})}/></Field><div className="actions"><button className="small-primary" onClick={()=>reviewVehicleReservation(r.id,"Autorizada")}>Autorizar</button><button className="small-danger" onClick={()=>reviewVehicleReservation(r.id,"Indeferida")}>Indeferir</button></div></div> : <><Status value={r.status}/>{r.administrative_note && <small>{r.administrative_note}</small>}{r.reviewed_at && <small>Analisada em {new Date(r.reviewed_at).toLocaleString("pt-BR")}</small>}</>}</td></tr>)}</tbody></table></div>}
+        </div>}
         <div className="panel table-panel">
           <div className="users-heading"><div><h3>Registros de utilização</h3><p>As utilizações em andamento podem ser finalizadas com os dados de retorno.</p></div></div>
           {vehicleUsages.length===0 ? <Empty text="Nenhuma utilização registrada."/> : <div className="table-wrap"><table><thead><tr><th>Viatura</th><th>Responsável</th><th>Destino / finalidade</th><th>Saída</th><th>Retorno / situação</th><th>Ações</th></tr></thead><tbody>{vehicleUsages.map(u=><tr key={u.id}>
@@ -656,8 +715,8 @@ export default function App() {
             <td><b>{u.personnel?.full_name || "Cadastro funcional"}</b><small>{u.personnel?.rank || ""}</small></td>
             <td>{u.destination}<small>{u.purpose}</small>{u.notes && <small>{u.notes}</small>}</td>
             <td>{new Date(u.departure_at).toLocaleString("pt-BR")}<small>{Number(u.odometer_out).toLocaleString("pt-BR")} km</small></td>
-            <td><Status value={u.status}/>{u.return_at && <small>{new Date(u.return_at).toLocaleString("pt-BR")}</small>}{u.odometer_in !== null && <small>{Number(u.odometer_in).toLocaleString("pt-BR")} km</small>}
-              {u.status==="Em andamento" && <div className="form"><Field label="Data e hora do retorno"><input type="datetime-local" value={usageReturnValues[u.id]?.return_at || dateTimeLocalNow()} onChange={e=>setUsageReturnValues({...usageReturnValues,[u.id]:{return_at:e.target.value,odometer_in:usageReturnValues[u.id]?.odometer_in || ""}})}/></Field><Field label="Quilometragem de retorno"><input type="number" min={u.odometer_out} step="0.1" value={usageReturnValues[u.id]?.odometer_in || ""} onChange={e=>setUsageReturnValues({...usageReturnValues,[u.id]:{return_at:usageReturnValues[u.id]?.return_at || dateTimeLocalNow(),odometer_in:e.target.value}})}/></Field></div>}
+            <td><Status value={u.status}/>{u.return_at && <small>{new Date(u.return_at).toLocaleString("pt-BR")}</small>}{u.odometer_in !== null && <small>{Number(u.odometer_in).toLocaleString("pt-BR")} km</small>}{u.return_notes && <small>Retorno: {u.return_notes}</small>}
+              {u.status==="Em andamento" && <div className="form"><Field label="Data e hora do retorno"><input type="datetime-local" value={usageReturnValues[u.id]?.return_at || dateTimeLocalNow()} onChange={e=>setUsageReturnValues({...usageReturnValues,[u.id]:{return_at:e.target.value,odometer_in:usageReturnValues[u.id]?.odometer_in || ""}})}/></Field><Field label="Quilometragem de retorno"><input type="number" min={u.odometer_out} step="0.1" value={usageReturnValues[u.id]?.odometer_in || ""} onChange={e=>setUsageReturnValues({...usageReturnValues,[u.id]:{...usageReturnValues[u.id],return_at:usageReturnValues[u.id]?.return_at || dateTimeLocalNow(),odometer_in:e.target.value}})}/></Field><Field label="Ocorrências / observações do retorno"><input value={usageReturnValues[u.id]?.return_notes || ""} onChange={e=>setUsageReturnValues({...usageReturnValues,[u.id]:{...usageReturnValues[u.id],return_at:usageReturnValues[u.id]?.return_at || dateTimeLocalNow(),odometer_in:usageReturnValues[u.id]?.odometer_in || "",return_notes:e.target.value}})}/></Field></div>}
             </td>
             <td>{u.status==="Em andamento" ? <div className="actions"><button className="small-primary" onClick={()=>finishVehicleUsage(u.id)}>Registrar retorno</button>{profile.role==="admin" && <button className="small-danger" onClick={()=>cancelVehicleUsage(u.id)}>Cancelar</button>}</div> : "—"}</td>
           </tr>)}</tbody></table></div>}
@@ -693,7 +752,7 @@ export default function App() {
         </div>
         <div className="panel form user-create-note"><h3><Plus size={18}/> Como adicionar uma pessoa</h3><ol><li>A pessoa acessa a tela inicial e escolhe “Criar conta”.</li><li>Após confirmar o e-mail, se essa exigência estiver ativa, ela entra no sistema.</li><li>O cadastro aparece nesta lista com o perfil inicial de instrutor.</li><li>Você escolhe se mantém como instrutor ou promove a administrador.</li></ol><p className="muted">Esta versão não envia convites por e-mail. A criação da conta é feita pelo próprio usuário.</p></div>
       </section>}
-      <footer>PROERD DIGITAL · PoC 0.5 · Dados fictícios · Não é sistema oficial da PMDF</footer>
+      <footer>PROERD DIGITAL · PoC 0.6 · Dados fictícios · Não é sistema oficial da PMDF</footer>
     </main>
   </div>;
 }
@@ -701,6 +760,6 @@ export default function App() {
 function Brand(){return <div className="brand"><div className="brand-mark"><ShieldCheck size={23}/></div><div><b>PROERD DIGITAL</b><small>PLATAFORMA INTEGRADA</small></div></div>}
 function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="field"><span>{label}</span>{children}</label>}
 function Stat({label,value,icon:Icon,onClick,disabled=false}:{label:string;value:number;icon:any;onClick?:()=>void;disabled?:boolean}){return <button type="button" className="stat-card" onClick={onClick} disabled={disabled || !onClick} aria-label={`Abrir ${label}`}><div><span>{label}</span><strong>{value}</strong></div><div className="stat-icon"><Icon size={20}/></div></button>}
-function Status({value}:{value:string}){const cls=value==="Validada"||value==="Aceita"?"green":value==="Devolvida"?"red":value==="Pendente"||value==="Pendente de validação"?"amber":"blue";return <span className={`status ${cls}`}>{value}</span>}
+function Status({value}:{value:string}){const cls=["Validada","Aceita","Autorizada"].includes(value)?"green":["Devolvida","Indeferida","Cancelada"].includes(value)?"red":["Pendente","Pendente de validação","Solicitada"].includes(value)?"amber":"blue";return <span className={`status ${cls}`}>{value}</span>}
 function Empty({text}:{text:string}){return <div className="empty"><ClipboardList size={26}/><span>{text}</span></div>}
 function SetupScreen(){return <div className="auth-wrap"><div className="auth-card setup"><Brand/><h1>Configuração inicial</h1><p>O código da aplicação está pronto. Para conectar ao banco de dados, crie o projeto no Supabase e configure as duas variáveis de ambiente.</p><ol><li>Execute o arquivo <code>supabase/migrations/001_initial_schema.sql</code> no SQL Editor do Supabase.</li><li>Copie a URL do projeto e a chave publicável (anon) para um arquivo <code>.env</code>.</li><li>Reinicie a aplicação com <code>npm run dev</code>.</li></ol><p className="muted">Não coloque a chave service_role no frontend, no GitHub ou neste chat.</p><div className="notice">O projeto ainda não está conectado a um banco. Nenhum dado será gravado até concluir esta configuração.</div></div></div>}

@@ -632,7 +632,7 @@ export default function App() {
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
     {id:"communication" as Tab,label:"Comunicação e avisos",icon:Bell},
     {id:"documents" as Tab,label:"Documentos institucionais",icon:BookOpen},
-    ...(profile.role === "admin" ? [{id:"scales" as Tab,label:"Escalas",icon:CalendarDays}] : []),
+    {id:"scales" as Tab,label:"Escalas",icon:CalendarDays},
     ...(profile.role === "admin" ? [{id:"reports" as Tab,label:"Relatórios",icon:ActivityIcon}] : []),
     ...(profile.is_primary_admin ? [{id:"users" as Tab,label:"Gerenciamento de usuários",icon:Users}] : [])
   ];

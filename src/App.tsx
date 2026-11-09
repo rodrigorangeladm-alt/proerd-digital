@@ -635,6 +635,14 @@ export default function App() {
     ...(profile.is_primary_admin ? [{id:"users" as Tab,label:"Gerenciamento de usuários",icon:Users}] : [])
   ];
 
+  // Mantém o Painel inicial em primeiro lugar e organiza os demais itens
+  // alfabeticamente conforme o rótulo exibido para cada perfil.
+  menu.sort((a, b) => {
+    if (a.id === "dashboard") return -1;
+    if (b.id === "dashboard") return 1;
+    return a.label.localeCompare(b.label, "pt-BR", { sensitivity: "base" });
+  });
+
   return <div className="app-shell">
     <aside className="sidebar">
       <Brand />

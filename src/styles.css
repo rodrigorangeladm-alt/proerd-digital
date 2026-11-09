@@ -6,3 +6,40 @@
 /* Gerenciamento de usuários */
 .users-info{margin-bottom:16px}.users-panel{padding:0;overflow:hidden}.users-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 20px;border-bottom:1px solid #edf1f5}.users-heading h3{margin:0 0 5px}.users-heading p{margin:0;color:#7b8b9d;font-size:11px}.users-heading button{display:flex;align-items:center;gap:6px}.users-table{min-width:900px}.role-actions{display:flex;gap:7px;flex-wrap:wrap}.small-secondary{background:#fff;border:1px solid #dce5ee;border-radius:7px;color:#345a7d;padding:7px 9px;font-size:10px;font-weight:700;white-space:nowrap}.small-secondary:hover{background:#f3f7fb}.small-primary.selected,.small-secondary.selected{opacity:.65;cursor:default}.user-create-note{margin-top:16px;max-width:900px}.user-create-note ol{margin:5px 0 10px;padding-left:20px;color:#536a81;font-size:12px;line-height:1.9}.user-create-note .muted{margin-bottom:0}
 @media(max-width:700px){.users-heading{align-items:flex-start;flex-direction:column}.role-actions{min-width:220px}}
+
+/* Menu lateral: rolagem vertical independente quando os itens não couberem */
+.sidebar nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+  overscroll-behavior: contain;
+  padding-right: 5px;
+  scrollbar-width: thin;
+  scrollbar-color: #6f8eae #102b4e;
+}
+.sidebar nav::-webkit-scrollbar { width: 8px; }
+.sidebar nav::-webkit-scrollbar-track {
+  background: #102b4e;
+  border-radius: 8px;
+}
+.sidebar nav::-webkit-scrollbar-thumb {
+  background: #6f8eae;
+  border: 2px solid #102b4e;
+  border-radius: 8px;
+}
+.sidebar nav::-webkit-scrollbar-thumb:hover { background: #9bb4ce; }
+
+/* Em telas pequenas, preserva a navegação horizontal já existente. */
+@media (max-width: 700px) {
+  .sidebar nav {
+    flex: 0 0 auto;
+    min-height: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-right: 0;
+    padding-bottom: 5px;
+  }
+}
+

@@ -7,6 +7,7 @@ import {
 import { configured, supabase, type Activity, type Demand, type Profile, type School } from "./lib";
 import VehicleOperations from "./VehicleOperations";
 import ScheduleManagement from "./ScheduleManagement";
+import SchoolPortal from "./SchoolPortal";
 
 type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users";
 type Personnel = {
@@ -142,7 +143,7 @@ export default function App() {
   }, [session]);
 
   useEffect(() => {
-    if (profile) refresh();
+    if (profile && profile.role !== "school") refresh();
   }, [profile]);
 
   async function loadProfile() {
@@ -153,7 +154,7 @@ export default function App() {
   }
 
   async function refresh() {
-    if (!supabase || !profile) return;
+    if (!supabase || !profile || profile.role === "school") return;
     setLoading(true);
     const [s, d, a, u, p, lr, v, vu, vr, av] = await Promise.all([
       supabase.from("schools").select("*").order("name"),
@@ -610,6 +611,8 @@ export default function App() {
 
   if (!profile) return <div className="loading-screen"><RefreshCw className="spin" /> Carregando perfil...</div>;
 
+  if (profile.role === "school") return <div className="app-shell school-portal-shell"><main className="main"><header className="topbar"><div><div className="eyebrow">PROERD DIGITAL</div><h1>Portal das Escolas</h1></div><button className="icon-btn" onClick={()=>supabase?.auth.signOut()} title="Sair"><LogOut size={18}/></button></header><SchoolPortal profile={profile}/></main></div>;
+
   const menu: {id:Tab; label:string; icon:any}[] = [
     {id:"dashboard",label:"Painel inicial",icon:LayoutDashboard},
     ...(profile.role === "admin" ? [{id:"personnel" as Tab,label:"Gestão de Pessoal",icon:Users}] : []),
@@ -619,7 +622,7 @@ export default function App() {
     ...(profile.role === "admin" ? [{id:"vehicles" as Tab,label:"Gestão de Viaturas",icon:Car}] : []),
     {id:"vehicleUsage" as Tab,label:"Histórico de utilização",icon:ClipboardList},
     {id:"vehicleOperations" as Tab,label:"Abastecimento e manutenção",icon:Fuel},
-    ...(profile.role === "admin" ? [{id:"schools" as Tab,label:"Escolas",icon:SchoolIcon}] : []),
+    ...(profile.role === "admin" ? [{id:"schools" as Tab,label:"Escolas",icon:SchoolIcon},{id:"schoolPortal" as Tab,label:"Portal das Escolas",icon:SchoolIcon}] : []),
     {id:"demands",label:profile.role === "admin" ? "Central de demandas" : "Minhas designações",icon:ClipboardList},
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
     ...(profile.role === "admin" ? [{id:"reports" as Tab,label:"Relatórios",icon:ActivityIcon}] : []),
@@ -629,12 +632,12 @@ export default function App() {
   return <div className="app-shell">
     <aside className="sidebar">
       <Brand />
-      <div className="profile-mini"><div className="avatar">{profile.full_name?.slice(0,1).toUpperCase() || "U"}</div><div><b>{profile.full_name}</b><small>{profile.role === "admin" ? "Administrador" : "Instrutor"}</small></div></div>
+      <div className="profile-mini"><div className="avatar">{profile.full_name?.slice(0,1).toUpperCase() || "U"}</div><div><b>{profile.full_name}</b><small>{profile.role === "admin" ? "Administrador" : profile.role === "school" ? "Escola" : "Instrutor"}</small></div></div>
       <nav>{menu.map(item=><button key={item.id} className={tab===item.id?"nav-item active":"nav-item"} onClick={()=>setTab(item.id)}><item.icon size={18}/>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><span className="env"><span/> Ambiente de testes</span><button className="nav-item" onClick={()=>supabase?.auth.signOut()}><LogOut size={18}/> Sair</button></div>
     </aside>
     <main className="main">
-      <header className="topbar"><div><div className="eyebrow">PLATAFORMA INTEGRADA DE GESTÃO</div><h1>{menu.find(m=>m.id===tab)?.label}</h1></div><div className="top-actions"><span className="role-tag">{profile.role === "admin" ? "ADMINISTRAÇÃO" : "INSTRUTOR"}</span><button className="icon-btn" onClick={refresh} title="Atualizar"><RefreshCw size={18}/></button></div></header>
+      <header className="topbar"><div><div className="eyebrow">PLATAFORMA INTEGRADA DE GESTÃO</div><h1>{menu.find(m=>m.id===tab)?.label}</h1></div><div className="top-actions"><span className="role-tag">{profile.role === "admin" ? "ADMINISTRAÇÃO" : profile.role === "school" ? "ESCOLA" : "INSTRUTOR"}</span><button className="icon-btn" onClick={refresh} title="Atualizar"><RefreshCw size={18}/></button></div></header>
       {notice && <div className="notice-bar"><AlertCircle size={17}/>{notice}<button onClick={()=>setNotice("")}><X size={16}/></button></div>}
       {loading && <div className="loading-line"/>}
       {tab==="dashboard" && <section>

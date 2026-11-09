@@ -9,7 +9,8 @@ export const supabase = configured ? createClient(url!, key!) : null;
 export type Profile = {
   id: string;
   full_name: string;
-  role: "admin" | "instructor";
+  role: "admin" | "instructor" | "school";
+  school_id?: string | null;
   rank: string | null;
   email?: string | null;
   is_primary_admin?: boolean;

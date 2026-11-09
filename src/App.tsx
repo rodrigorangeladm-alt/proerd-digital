@@ -131,6 +131,7 @@ export default function App() {
   const [activityResult, setActivityResult] = useState("Realizada integralmente");
   const [activityNotes, setActivityNotes] = useState("");
   const [reviewNote, setReviewNote] = useState("");
+  const [reportPeriod, setReportPeriod] = useState("12");
 
   useEffect(() => {
     if (!supabase) return;
@@ -851,9 +852,41 @@ export default function App() {
         <div className="panel table-panel">{visibleActivities.length===0?<Empty text="Nenhuma atividade registrada."/>:<div className="table-wrap"><table><thead><tr><th>Protocolo</th><th>Escola / turma</th><th>Data</th><th>Alunos</th><th>Status</th><th>Validação</th></tr></thead><tbody>{visibleActivities.map(a=><tr key={a.id}><td>{a.demands?.protocol || "—"}</td><td>{a.demands?.schools?.name || "Escola"}<small>{a.demands?.class_name}</small></td><td>{a.performed_on}</td><td>{a.students_present}</td><td><Status value={a.status}/></td><td>{profile.role==="admin" && a.status==="Pendente de validação"?<div className="review"><input placeholder="Motivo se devolver" value={reviewNote} onChange={e=>setReviewNote(e.target.value)}/><button className="small-primary" onClick={()=>validateActivity(a.id,true)}><Check size={14}/> Validar</button><button className="small-danger" onClick={()=>validateActivity(a.id,false)}>Devolver</button></div>:a.validation_note || (profile.role==="admin"?(a as any).instructor?.full_name:"")}</td></tr>)}</tbody></table></div>}</div>
       </section>}
       {tab==="reports" && profile.role==="admin" && <section>
-        <div className="section-head"><div><h2>Relatório gerencial</h2><p>Indicadores demonstrativos calculados a partir dos registros validados.</p></div></div>
-        <div className="stats"><Stat label="Escolas" value={schools.length} icon={SchoolIcon}/><Stat label="Demandas totais" value={demands.length} icon={ClipboardList}/><Stat label="Atividades validadas" value={validated} icon={CheckCircle2}/><Stat label="Alunos registrados nas validadas" value={activities.filter(a=>a.status==="Validada").reduce((n,a)=>n+a.students_present,0)} icon={Users}/></div>
-        <div className="panel"><h3>Consolidação por situação</h3>{["Pendente de validação","Validada","Devolvida"].map(status=><div className="bar-row" key={status}><span>{status}</span><div className="bar"><i style={{width:`${activities.length?activities.filter(a=>a.status===status).length/activities.length*100:0}%`}}/></div><b>{activities.filter(a=>a.status===status).length}</b></div>)}<p className="muted small-note">Exportação Excel/PDF será incluída em etapa posterior. Este painel não é relatório oficial.</p></div>
+        <div className="section-head"><div><h2>Inteligência gerencial</h2><p>Indicadores calculados com os registros disponíveis no PROERD DIGITAL.</p></div><div className="actions"><select value={reportPeriod} onChange={e=>setReportPeriod(e.target.value)}><option value="3">Últimos 3 meses</option><option value="6">Últimos 6 meses</option><option value="12">Últimos 12 meses</option><option value="all">Todo o período</option></select><button className="small-primary" onClick={()=>exportManagementCsv(schools,demands,activities,personnel,vehicles,vehicleUsages)}><ActivityIcon size={14}/> Exportar CSV</button></div></div>
+        {(() => {
+          const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - (reportPeriod === "all" ? 1200 : Number(reportPeriod)));
+          const inPeriod = (value?: string | null) => reportPeriod === "all" || (!!value && new Date(value) >= cutoff);
+          const periodDemands = demands.filter(d=>inPeriod((d as any).created_at || d.preferred_date));
+          const periodActivities = activities.filter(a=>inPeriod(a.performed_on));
+          const periodValidated = periodActivities.filter(a=>a.status==="Validada");
+          const studentsTotal = periodValidated.reduce((sum,a)=>sum+Number(a.students_present||0),0);
+          const activePersonnel = personnel.filter(p=>p.status==="Ativo").length;
+          const activeInstructors = users.filter(u=>u.role==="instructor" && (u as any).is_active!==false).length;
+          const openDemands = periodDemands.filter(d=>!["Concluída","Cancelada","Indeferida"].includes(d.status)).length;
+          const availableVehicles = vehicles.filter(v=>v.status==="Disponivel").length;
+          const months = Array.from({length:6},(_,i)=>{const dt=new Date();dt.setDate(1);dt.setMonth(dt.getMonth()-(5-i));const key=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;return {key,label:dt.toLocaleDateString("pt-BR",{month:"short"}),count:periodValidated.filter(a=>(a.performed_on||"").slice(0,7)===key).length};});
+          const maxMonth=Math.max(1,...months.map(m=>m.count));
+          const byRegion=schools.reduce((acc:any,s:any)=>{const k=s.region||"Não informada";acc[k]=(acc[k]||0)+1;return acc;},{});
+          return <>
+            <div className="stats">
+              <Stat label="Pessoas ativas" value={activePersonnel} icon={Users}/>
+              <Stat label="Instrutores cadastrados" value={activeInstructors} icon={GraduationCap}/>
+              <Stat label="Escolas cadastradas" value={schools.length} icon={SchoolIcon}/>
+              <Stat label="Demandas em aberto" value={openDemands} icon={ClipboardList}/>
+              <Stat label="Atividades validadas" value={periodValidated.length} icon={CheckCircle2}/>
+              <Stat label="Alunos atendidos" value={studentsTotal} icon={Users}/>
+              <Stat label="Viaturas disponíveis" value={availableVehicles} icon={Car}/>
+              <Stat label="Viaturas cadastradas" value={vehicles.length} icon={Car}/>
+            </div>
+            <div className="panel" style={{marginTop:16}}><h3>Evolução das atividades validadas</h3><div style={{display:"grid",gridTemplateColumns:"repeat(6,minmax(0,1fr))",gap:12,alignItems:"end",height:190,padding:"16px 4px 0"}}>{months.map(m=><div key={m.key} style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"end",height:"100%",gap:7}}><b>{m.count}</b><div title={`${m.count} atividades`} style={{width:"65%",minWidth:18,height:`${Math.max(4,m.count/maxMonth*125)}px`,background:"#2874a6",borderRadius:"6px 6px 0 0"}}/><small>{m.label}</small></div>)}</div><p className="muted small-note">Contagem baseada na data de execução e no status “Validada”.</p></div>
+            <div className="grid-two" style={{marginTop:16}}>
+              <div className="panel"><h3>Demandas por situação</h3>{[...new Set(periodDemands.map(d=>d.status))].sort().map(status=><div className="bar-row" key={status}><span>{status}</span><div className="bar"><i style={{width:`${periodDemands.length?periodDemands.filter(d=>d.status===status).length/periodDemands.length*100:0}%`}}/></div><b>{periodDemands.filter(d=>d.status===status).length}</b></div>)}{!periodDemands.length&&<Empty text="Sem demandas no período."/>}</div>
+              <div className="panel"><h3>Escolas por região administrativa</h3>{Object.entries(byRegion).sort((a:any,b:any)=>b[1]-a[1]).slice(0,8).map(([region,count]:any)=><div className="bar-row" key={region}><span>{region}</span><div className="bar"><i style={{width:`${schools.length?count/schools.length*100:0}%`}}/></div><b>{count}</b></div>)}</div>
+            </div>
+            <div className="panel" style={{marginTop:16}}><h3>Indicadores da frota</h3><div className="stats"><Stat label="Em uso" value={vehicles.filter(v=>v.status==="Em uso").length} icon={Car}/><Stat label="Em manutenção" value={vehicles.filter(v=>v.status==="Em manutencao").length} icon={AlertCircle}/><Stat label="Utilizações no período" value={vehicleUsages.filter(u=>inPeriod(u.departure_at)).length} icon={ArrowRight}/><Stat label="Km registrados" value={vehicleUsages.filter(u=>inPeriod(u.departure_at)&&u.odometer_in!==null).reduce((sum,u)=>sum+Math.max(0,Number(u.odometer_in)-Number(u.odometer_out)),0)} icon={ActivityIcon}/></div><p className="muted small-note">Custos de combustível e manutenção não são estimados neste painel. Serão exibidos quando os respectivos registros estiverem integrados à consulta gerencial.</p></div>
+            <div className="panel" style={{marginTop:16}}><h3>Resumo do período</h3><p>Demandas recebidas: <b>{periodDemands.length}</b> · Atividades registradas: <b>{periodActivities.length}</b> · Atividades validadas: <b>{periodValidated.length}</b> · Alunos registrados: <b>{studentsTotal}</b></p><p className="muted small-note">Relatório gerencial de apoio. Os dados refletem os registros e permissões atualmente disponíveis no sistema, não substituindo relatórios oficiais.</p></div>
+          </>;
+        })()}
       </section>}
       {tab==="users" && profile.is_primary_admin && <section>
         <div className="section-head"><div><h2>Gerenciamento de usuários</h2><p>Somente o administrador principal pode alterar os perfis de acesso.</p></div><span className="count">{users.length} usuários</span></div>
@@ -864,9 +897,28 @@ export default function App() {
         </div>
         <div className="panel form user-create-note"><h3><Plus size={18}/> Como adicionar uma pessoa</h3><ol><li>A pessoa acessa a tela inicial e escolhe “Criar conta”.</li><li>Após confirmar o e-mail, se essa exigência estiver ativa, ela entra no sistema.</li><li>O cadastro aparece nesta lista com o perfil inicial de instrutor.</li><li>Você escolhe se mantém como instrutor ou promove a administrador.</li></ol><p className="muted">Esta versão não envia convites por e-mail. A criação da conta é feita pelo próprio usuário.</p></div>
       </section>}
-      <footer>PROERD DIGITAL · PoC 1.2 · Dados fictícios · Não é sistema oficial da PMDF</footer>
+      <footer>PROERD DIGITAL · PoC 1.4 · Dados fictícios · Não é sistema oficial da PMDF</footer>
     </main>
   </div>;
+}
+
+function exportManagementCsv(schools:any[],demands:any[],activities:any[],personnel:any[],vehicles:any[],usages:any[]){
+  const rows=[
+    ["Grupo","Indicador","Valor"],
+    ["Escolas","Total",schools.length],
+    ["Demandas","Total",demands.length],
+    ["Demandas","Em aberto",demands.filter(d=>!["Concluída","Cancelada","Indeferida"].includes(d.status)).length],
+    ["Atividades","Total",activities.length],
+    ["Atividades","Validadas",activities.filter(a=>a.status==="Validada").length],
+    ["Atividades","Alunos registrados em validadas",activities.filter(a=>a.status==="Validada").reduce((s,a)=>s+Number(a.students_present||0),0)],
+    ["Pessoal","Ativos",personnel.filter(p=>p.status==="Ativo").length],
+    ["Frota","Total de viaturas",vehicles.length],
+    ["Frota","Disponíveis",vehicles.filter(v=>v.status==="Disponivel").length],
+    ["Frota","Em manutenção",vehicles.filter(v=>v.status==="Em manutencao").length],
+    ["Frota","Km registrados",usages.filter(u=>u.odometer_in!==null).reduce((s,u)=>s+Math.max(0,Number(u.odometer_in)-Number(u.odometer_out)),0)]
+  ];
+  const csv="\uFEFF"+rows.map(r=>r.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(";")).join("\r\n");
+  const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8;"}));const a=document.createElement("a");a.href=url;a.download=`proerd_indicadores_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);
 }
 
 const weekdayNames = ["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];

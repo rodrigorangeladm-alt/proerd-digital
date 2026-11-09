@@ -6,8 +6,9 @@ import {
 } from "lucide-react";
 import { configured, supabase, type Activity, type Demand, type Profile, type School } from "./lib";
 import VehicleOperations from "./VehicleOperations";
+import ScheduleManagement from "./ScheduleManagement";
 
-type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schools" | "demands" | "activities" | "reports" | "users";
+type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users";
 type Personnel = {
   id: string;
   full_name: string;
@@ -613,6 +614,7 @@ export default function App() {
     {id:"dashboard",label:"Painel inicial",icon:LayoutDashboard},
     ...(profile.role === "admin" ? [{id:"personnel" as Tab,label:"Gestão de Pessoal",icon:Users}] : []),
     {id:"instructors",label:profile.role === "admin" ? "Disponibilidade dos instrutores" : "Minha disponibilidade",icon:CalendarDays},
+    {id:"schedule" as Tab,label:profile.role === "admin" ? "Agenda e distribuição" : "Minha agenda",icon:CalendarDays},
     {id:"leave",label:"Férias, licenças e afastamentos",icon:ClipboardList},
     ...(profile.role === "admin" ? [{id:"vehicles" as Tab,label:"Gestão de Viaturas",icon:Car}] : []),
     {id:"vehicleUsage" as Tab,label:"Histórico de utilização",icon:ClipboardList},
@@ -711,6 +713,8 @@ export default function App() {
           <div className="panel"><h3>Gestão de ausências</h3><p className="muted">Consulte e analise férias, licenças e afastamentos no módulo específico. Somente pedidos deferidos são tratados como ausência confirmada neste quadro.</p><button className="small-secondary" onClick={()=>setTab("leave")}>Abrir férias, licenças e afastamentos</button></div>
         </>}
       </section>}
+
+      {tab==="schedule" && <ScheduleManagement profile={profile} demands={demands} schools={schools} users={users} personnel={personnel} availability={instructorAvailability} absences={leaveRequests} onNotice={setNotice} onRefresh={refresh} />}
 
       {tab==="leave" && <section>
         <div className="section-head"><div><h2>{profile.role === "admin" ? "Solicitações de férias, licenças e afastamentos" : "Minhas solicitações"}</h2><p>Registre pedidos e acompanhe a análise administrativa e a tramitação.</p></div><span className="count">{leaveRequests.length} registros</span></div>
@@ -849,7 +853,7 @@ export default function App() {
         </div>
         <div className="panel form user-create-note"><h3><Plus size={18}/> Como adicionar uma pessoa</h3><ol><li>A pessoa acessa a tela inicial e escolhe “Criar conta”.</li><li>Após confirmar o e-mail, se essa exigência estiver ativa, ela entra no sistema.</li><li>O cadastro aparece nesta lista com o perfil inicial de instrutor.</li><li>Você escolhe se mantém como instrutor ou promove a administrador.</li></ol><p className="muted">Esta versão não envia convites por e-mail. A criação da conta é feita pelo próprio usuário.</p></div>
       </section>}
-      <footer>PROERD DIGITAL · PoC 0.9 · Dados fictícios · Não é sistema oficial da PMDF</footer>
+      <footer>PROERD DIGITAL · PoC 1.0 · Dados fictícios · Não é sistema oficial da PMDF</footer>
     </main>
   </div>;
 }

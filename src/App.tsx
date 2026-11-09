@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity as ActivityIcon, AlertCircle, ArrowRight, BookOpen, Check, CheckCircle2, CalendarDays, Clock,
   ClipboardList, GraduationCap, LayoutDashboard, LogOut, Plus, RefreshCw, School as SchoolIcon, Car,
-  ShieldCheck, Users, X
+  ShieldCheck, Users, X, Fuel
 } from "lucide-react";
 import { configured, supabase, type Activity, type Demand, type Profile, type School } from "./lib";
+import VehicleOperations from "./VehicleOperations";
 
-type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "schools" | "demands" | "activities" | "reports" | "users";
+type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schools" | "demands" | "activities" | "reports" | "users";
 type Personnel = {
   id: string;
   full_name: string;
@@ -615,6 +616,7 @@ export default function App() {
     {id:"leave",label:"Férias, licenças e afastamentos",icon:ClipboardList},
     ...(profile.role === "admin" ? [{id:"vehicles" as Tab,label:"Gestão de Viaturas",icon:Car}] : []),
     {id:"vehicleUsage" as Tab,label:"Histórico de utilização",icon:ClipboardList},
+    {id:"vehicleOperations" as Tab,label:"Abastecimento e manutenção",icon:Fuel},
     ...(profile.role === "admin" ? [{id:"schools" as Tab,label:"Escolas",icon:SchoolIcon}] : []),
     {id:"demands",label:profile.role === "admin" ? "Central de demandas" : "Minhas designações",icon:ClipboardList},
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
@@ -776,6 +778,7 @@ export default function App() {
         </div>
       </section>}
 
+      {tab==="vehicleOperations" && <VehicleOperations profile={profile} vehicles={vehicles} vehicleUsages={vehicleUsages} personnel={personnel} onRefresh={refresh} onNotice={setNotice} />}
       {tab==="vehicleUsage" && <section>
         <div className="section-head"><div><h2>Histórico de utilização de viaturas</h2><p>{profile.role==="admin" ? "Gerencie saídas, retornos e registros de toda a equipe." : "Consulte a disponibilidade, registre sua saída e informe o retorno da viatura."} Utilize somente dados fictícios nesta PoC.</p></div><span className="count">{vehicleUsages.length} registros</span></div>
         {profile.role === "instructor" ? <>
@@ -846,7 +849,7 @@ export default function App() {
         </div>
         <div className="panel form user-create-note"><h3><Plus size={18}/> Como adicionar uma pessoa</h3><ol><li>A pessoa acessa a tela inicial e escolhe “Criar conta”.</li><li>Após confirmar o e-mail, se essa exigência estiver ativa, ela entra no sistema.</li><li>O cadastro aparece nesta lista com o perfil inicial de instrutor.</li><li>Você escolhe se mantém como instrutor ou promove a administrador.</li></ol><p className="muted">Esta versão não envia convites por e-mail. A criação da conta é feita pelo próprio usuário.</p></div>
       </section>}
-      <footer>PROERD DIGITAL · PoC 0.7 · Dados fictícios · Não é sistema oficial da PMDF</footer>
+      <footer>PROERD DIGITAL · PoC 0.9 · Dados fictícios · Não é sistema oficial da PMDF</footer>
     </main>
   </div>;
 }

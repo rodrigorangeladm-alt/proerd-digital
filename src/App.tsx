@@ -9,7 +9,7 @@ import VehicleOperations from "./VehicleOperations";
 import ScheduleManagement from "./ScheduleManagement";
 import SchoolPortal from "./SchoolPortal";
 
-type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users";
+type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal";
 type Personnel = {
   id: string;
   full_name: string;
@@ -143,7 +143,7 @@ export default function App() {
   }, [session]);
 
   useEffect(() => {
-    if (profile && profile.role !== "school") refresh();
+    if (profile) refresh();
   }, [profile]);
 
   async function loadProfile() {
@@ -611,7 +611,8 @@ export default function App() {
 
   if (!profile) return <div className="loading-screen"><RefreshCw className="spin" /> Carregando perfil...</div>;
 
-  if (profile.role === "school") return <div className="app-shell school-portal-shell"><main className="main"><header className="topbar"><div><div className="eyebrow">PROERD DIGITAL</div><h1>Portal das Escolas</h1></div><button className="icon-btn" onClick={()=>supabase?.auth.signOut()} title="Sair"><LogOut size={18}/></button></header><SchoolPortal profile={profile}/></main></div>;
+  // Contas vinculadas a escolas acessam exclusivamente o portal externo.
+  if (profile.role === "school") return <div className="app-shell"><main className="main-content"><header className="topbar"><Brand/><button className="small-secondary" onClick={()=>supabase?.auth.signOut()}><LogOut size={16}/> Sair</button></header><SchoolPortal profile={profile}/><footer>PROERD DIGITAL · Portal das Escolas · Acesso restrito à unidade vinculada</footer></main></div>;
 
   const menu: {id:Tab; label:string; icon:any}[] = [
     {id:"dashboard",label:"Painel inicial",icon:LayoutDashboard},
@@ -632,12 +633,12 @@ export default function App() {
   return <div className="app-shell">
     <aside className="sidebar">
       <Brand />
-      <div className="profile-mini"><div className="avatar">{profile.full_name?.slice(0,1).toUpperCase() || "U"}</div><div><b>{profile.full_name}</b><small>{profile.role === "admin" ? "Administrador" : profile.role === "school" ? "Escola" : "Instrutor"}</small></div></div>
+      <div className="profile-mini"><div className="avatar">{profile.full_name?.slice(0,1).toUpperCase() || "U"}</div><div><b>{profile.full_name}</b><small>{profile.role === "admin" ? "Administrador" : "Instrutor"}</small></div></div>
       <nav>{menu.map(item=><button key={item.id} className={tab===item.id?"nav-item active":"nav-item"} onClick={()=>setTab(item.id)}><item.icon size={18}/>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><span className="env"><span/> Ambiente de testes</span><button className="nav-item" onClick={()=>supabase?.auth.signOut()}><LogOut size={18}/> Sair</button></div>
     </aside>
     <main className="main">
-      <header className="topbar"><div><div className="eyebrow">PLATAFORMA INTEGRADA DE GESTÃO</div><h1>{menu.find(m=>m.id===tab)?.label}</h1></div><div className="top-actions"><span className="role-tag">{profile.role === "admin" ? "ADMINISTRAÇÃO" : profile.role === "school" ? "ESCOLA" : "INSTRUTOR"}</span><button className="icon-btn" onClick={refresh} title="Atualizar"><RefreshCw size={18}/></button></div></header>
+      <header className="topbar"><div><div className="eyebrow">PLATAFORMA INTEGRADA DE GESTÃO</div><h1>{menu.find(m=>m.id===tab)?.label}</h1></div><div className="top-actions"><span className="role-tag">{profile.role === "admin" ? "ADMINISTRAÇÃO" : "INSTRUTOR"}</span><button className="icon-btn" onClick={refresh} title="Atualizar"><RefreshCw size={18}/></button></div></header>
       {notice && <div className="notice-bar"><AlertCircle size={17}/>{notice}<button onClick={()=>setNotice("")}><X size={16}/></button></div>}
       {loading && <div className="loading-line"/>}
       {tab==="dashboard" && <section>
@@ -832,6 +833,7 @@ export default function App() {
         <div className="two-col"><form className="panel form" onSubmit={addSchool}><h3><Plus size={18}/> Nova escola</h3><Field label="Nome da escola"><input required value={schoolName} onChange={e=>setSchoolName(e.target.value)} placeholder="Escola Exemplo" /></Field><div className="form-row"><Field label="Região administrativa"><input required value={region} onChange={e=>setRegion(e.target.value)} /></Field><Field label="Tipo"><select value={schoolType} onChange={e=>setSchoolType(e.target.value)}><option>Pública</option><option>Privada</option><option>Federal</option></select></Field></div><Field label="Endereço fictício"><input value={address} onChange={e=>setAddress(e.target.value)} placeholder="Endereço para simulação" /></Field><button className="primary">Salvar escola</button></form>
         <div className="panel"><h3>Escolas cadastradas <span className="count">{schools.length}</span></h3>{schools.length===0?<Empty text="Nenhuma escola cadastrada."/>:<div className="records">{schools.map(s=><div className="record" key={s.id}><div className="record-icon"><SchoolIcon size={18}/></div><div><b>{s.name}</b><small>{s.region} · {s.school_type}</small></div></div>)}</div>}</div></div>
       </section>}
+      {tab==="schoolPortal" && profile.role==="admin" && <SchoolPortal profile={profile} admin />}
       {tab==="demands" && <section>
         {profile.role==="admin" && <div className="panel form demand-form"><h3><Plus size={18}/> Abrir nova demanda</h3><form onSubmit={addDemand}><div className="form-row"><Field label="Escola"><select required value={dSchool} onChange={e=>setDSchool(e.target.value)}><option value="">Selecione</option>{schools.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></Field><Field label="Turma"><input required value={className} onChange={e=>setClassName(e.target.value)}/></Field></div><div className="form-row"><Field label="Tipo de atividade"><select value={activityType} onChange={e=>setActivityType(e.target.value)}><option>PROERD 5º ano</option><option>PROERD 7º ano</option><option>PROERD Kids</option><option>Palestra</option></select></Field><Field label="Data preferencial"><input type="date" value={preferredDate} onChange={e=>setPreferredDate(e.target.value)}/></Field></div><button className="primary" disabled={!schools.length}>Criar demanda</button></form></div>}
         <div className="section-head"><div><h2>{profile.role==="admin"?"Fila de demandas":"Designações recebidas"}</h2><p>Protocolos e andamento do atendimento.</p></div><span className="count">{visibleDemands.length} registros</span></div>

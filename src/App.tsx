@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Activity as ActivityIcon, AlertCircle, ArrowRight, BookOpen, Check, CheckCircle2, CalendarDays, Clock,
+  Activity as ActivityIcon, AlertCircle, ArrowRight, BookOpen, Check, CheckCircle2, CalendarDays, Clock, Bell,
   ClipboardList, GraduationCap, LayoutDashboard, LogOut, Plus, RefreshCw, School as SchoolIcon, Car,
   ShieldCheck, Users, X, Fuel
 } from "lucide-react";
@@ -8,8 +8,9 @@ import { configured, supabase, type Activity, type Demand, type Profile, type Sc
 import VehicleOperations from "./VehicleOperations";
 import ScheduleManagement from "./ScheduleManagement";
 import SchoolPortal from "./SchoolPortal";
+import CommunicationCenter from "./CommunicationCenter";
 
-type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal";
+type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal" | "communication";
 type Personnel = {
   id: string;
   full_name: string;
@@ -612,7 +613,7 @@ export default function App() {
   if (!profile) return <div className="loading-screen"><RefreshCw className="spin" /> Carregando perfil...</div>;
 
   // Contas vinculadas a escolas acessam exclusivamente o portal externo.
-  if (profile.role === "school") return <div className="app-shell"><main className="main-content"><header className="topbar"><Brand/><button className="small-secondary" onClick={()=>supabase?.auth.signOut()}><LogOut size={16}/> Sair</button></header><SchoolPortal profile={profile}/><footer>PROERD DIGITAL · Portal das Escolas · Acesso restrito à unidade vinculada</footer></main></div>;
+  if (profile.role === "school") return <div className="app-shell"><main className="main-content"><header className="topbar"><Brand/><button className="small-secondary" onClick={()=>supabase?.auth.signOut()}><LogOut size={16}/> Sair</button></header><SchoolPortal profile={profile}/><CommunicationCenter profile={profile} schools={[]}/><footer>PROERD DIGITAL · Portal das Escolas · Acesso restrito à unidade vinculada</footer></main></div>;
 
   const menu: {id:Tab; label:string; icon:any}[] = [
     {id:"dashboard",label:"Painel inicial",icon:LayoutDashboard},
@@ -626,6 +627,7 @@ export default function App() {
     ...(profile.role === "admin" ? [{id:"schools" as Tab,label:"Escolas",icon:SchoolIcon},{id:"schoolPortal" as Tab,label:"Portal das Escolas",icon:SchoolIcon}] : []),
     {id:"demands",label:profile.role === "admin" ? "Central de demandas" : "Minhas designações",icon:ClipboardList},
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
+    {id:"communication" as Tab,label:"Comunicação e avisos",icon:Bell},
     ...(profile.role === "admin" ? [{id:"reports" as Tab,label:"Relatórios",icon:ActivityIcon}] : []),
     ...(profile.is_primary_admin ? [{id:"users" as Tab,label:"Gerenciamento de usuários",icon:Users}] : [])
   ];
@@ -834,6 +836,7 @@ export default function App() {
         <div className="panel"><h3>Escolas cadastradas <span className="count">{schools.length}</span></h3>{schools.length===0?<Empty text="Nenhuma escola cadastrada."/>:<div className="records">{schools.map(s=><div className="record" key={s.id}><div className="record-icon"><SchoolIcon size={18}/></div><div><b>{s.name}</b><small>{s.region} · {s.school_type}</small></div></div>)}</div>}</div></div>
       </section>}
       {tab==="schoolPortal" && profile.role==="admin" && <SchoolPortal profile={profile} admin />}
+      {tab==="communication" && <CommunicationCenter profile={profile} schools={schools} />}
       {tab==="demands" && <section>
         {profile.role==="admin" && <div className="panel form demand-form"><h3><Plus size={18}/> Abrir nova demanda</h3><form onSubmit={addDemand}><div className="form-row"><Field label="Escola"><select required value={dSchool} onChange={e=>setDSchool(e.target.value)}><option value="">Selecione</option>{schools.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></Field><Field label="Turma"><input required value={className} onChange={e=>setClassName(e.target.value)}/></Field></div><div className="form-row"><Field label="Tipo de atividade"><select value={activityType} onChange={e=>setActivityType(e.target.value)}><option>PROERD 5º ano</option><option>PROERD 7º ano</option><option>PROERD Kids</option><option>Palestra</option></select></Field><Field label="Data preferencial"><input type="date" value={preferredDate} onChange={e=>setPreferredDate(e.target.value)}/></Field></div><button className="primary" disabled={!schools.length}>Criar demanda</button></form></div>}
         <div className="section-head"><div><h2>{profile.role==="admin"?"Fila de demandas":"Designações recebidas"}</h2><p>Protocolos e andamento do atendimento.</p></div><span className="count">{visibleDemands.length} registros</span></div>
@@ -858,7 +861,7 @@ export default function App() {
         </div>
         <div className="panel form user-create-note"><h3><Plus size={18}/> Como adicionar uma pessoa</h3><ol><li>A pessoa acessa a tela inicial e escolhe “Criar conta”.</li><li>Após confirmar o e-mail, se essa exigência estiver ativa, ela entra no sistema.</li><li>O cadastro aparece nesta lista com o perfil inicial de instrutor.</li><li>Você escolhe se mantém como instrutor ou promove a administrador.</li></ol><p className="muted">Esta versão não envia convites por e-mail. A criação da conta é feita pelo próprio usuário.</p></div>
       </section>}
-      <footer>PROERD DIGITAL · PoC 1.0 · Dados fictícios · Não é sistema oficial da PMDF</footer>
+      <footer>PROERD DIGITAL · PoC 1.2 · Dados fictícios · Não é sistema oficial da PMDF</footer>
     </main>
   </div>;
 }

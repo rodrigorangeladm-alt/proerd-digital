@@ -9,8 +9,9 @@ import VehicleOperations from "./VehicleOperations";
 import ScheduleManagement from "./ScheduleManagement";
 import SchoolPortal from "./SchoolPortal";
 import CommunicationCenter from "./CommunicationCenter";
+import DocumentsLibrary from "./DocumentsLibrary";
 
-type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal" | "communication";
+type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal" | "communication" | "documents";
 type Personnel = {
   id: string;
   full_name: string;
@@ -613,7 +614,7 @@ export default function App() {
   if (!profile) return <div className="loading-screen"><RefreshCw className="spin" /> Carregando perfil...</div>;
 
   // Contas vinculadas a escolas acessam exclusivamente o portal externo.
-  if (profile.role === "school") return <div className="app-shell"><main className="main-content"><header className="topbar"><Brand/><button className="small-secondary" onClick={()=>supabase?.auth.signOut()}><LogOut size={16}/> Sair</button></header><SchoolPortal profile={profile}/><CommunicationCenter profile={profile} schools={[]}/><footer>PROERD DIGITAL · Portal das Escolas · Acesso restrito à unidade vinculada</footer></main></div>;
+  if (profile.role === "school") return <div className="app-shell"><main className="main-content"><header className="topbar"><Brand/><button className="small-secondary" onClick={()=>supabase?.auth.signOut()}><LogOut size={16}/> Sair</button></header><SchoolPortal profile={profile}/><CommunicationCenter profile={profile} schools={[]}/><DocumentsLibrary profile={profile}/><footer>PROERD DIGITAL · Portal das Escolas · Acesso restrito à unidade vinculada</footer></main></div>;
 
   const menu: {id:Tab; label:string; icon:any}[] = [
     {id:"dashboard",label:"Painel inicial",icon:LayoutDashboard},
@@ -628,6 +629,7 @@ export default function App() {
     {id:"demands",label:profile.role === "admin" ? "Central de demandas" : "Minhas designações",icon:ClipboardList},
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
     {id:"communication" as Tab,label:"Comunicação e avisos",icon:Bell},
+    {id:"documents" as Tab,label:"Documentos institucionais",icon:BookOpen},
     ...(profile.role === "admin" ? [{id:"reports" as Tab,label:"Relatórios",icon:ActivityIcon}] : []),
     ...(profile.is_primary_admin ? [{id:"users" as Tab,label:"Gerenciamento de usuários",icon:Users}] : [])
   ];
@@ -837,6 +839,7 @@ export default function App() {
       </section>}
       {tab==="schoolPortal" && profile.role==="admin" && <SchoolPortal profile={profile} admin />}
       {tab==="communication" && <CommunicationCenter profile={profile} schools={schools} />}
+      {tab==="documents" && <DocumentsLibrary profile={profile} schools={schools} />}
       {tab==="demands" && <section>
         {profile.role==="admin" && <div className="panel form demand-form"><h3><Plus size={18}/> Abrir nova demanda</h3><form onSubmit={addDemand}><div className="form-row"><Field label="Escola"><select required value={dSchool} onChange={e=>setDSchool(e.target.value)}><option value="">Selecione</option>{schools.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></Field><Field label="Turma"><input required value={className} onChange={e=>setClassName(e.target.value)}/></Field></div><div className="form-row"><Field label="Tipo de atividade"><select value={activityType} onChange={e=>setActivityType(e.target.value)}><option>PROERD 5º ano</option><option>PROERD 7º ano</option><option>PROERD Kids</option><option>Palestra</option></select></Field><Field label="Data preferencial"><input type="date" value={preferredDate} onChange={e=>setPreferredDate(e.target.value)}/></Field></div><button className="primary" disabled={!schools.length}>Criar demanda</button></form></div>}
         <div className="section-head"><div><h2>{profile.role==="admin"?"Fila de demandas":"Designações recebidas"}</h2><p>Protocolos e andamento do atendimento.</p></div><span className="count">{visibleDemands.length} registros</span></div>

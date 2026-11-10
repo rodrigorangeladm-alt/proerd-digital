@@ -119,10 +119,9 @@ export default function ServiceScales({ supabase, personnel, profile }: Props) {
       setMessage("O navegador bloqueou a janela do PDF. Permita pop-ups para este site.");
       return;
     }
+    const groups = shifts.map(shift => rows.filter(r => String(r.shift_start || "").slice(0, 5) === shift.start));
     const esc = (v: any) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]!));
-    const blocks = shifts.map(shift => {
-      const group = rows.filter(r => r.shift_start === shift.start);
-      return group.length ? `
+    const blocks = groups.map((group, index) => group.length ? `
       <section class="block">
         <table>
           <thead><tr><th colspan="5">ESCALA DE SERVIÇO · ${esc(shift.label)}</th></tr>
@@ -130,8 +129,7 @@ export default function ServiceScales({ supabase, personnel, profile }: Props) {
           <tbody>${group.map(r => `<tr><td>${esc(r.personnel?.service_number || "Não informada")}</td><td>${esc(r.personnel?.rank)} ${esc(r.personnel?.war_name || r.personnel?.full_name)}</td><td>${esc(r.duty_type)}</td><td>${esc(r.circumstance)}</td><td>${esc(r.duty_type === "Instrutor" ? "INSTRUTOR" : "ADMINISTRATIVO")}</td></tr>`).join("")}</tbody>
         </table>
         ${group.some(r=>r.notes) ? `<p class="notes"><b>OBSERVAÇÕES</b><br>${group.filter(r=>r.notes).map(r=>esc(r.notes)).join("<br>")}</p>` : ""}
-      </section>` : "";
-    }).join("");
+      </section>` : "").join("");
     printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Escala de Serviço ${dateBR(date)}</title>
       <style>
       @page{size:A4 portrait;margin:14mm}*{box-sizing:border-box}body{font:11px Arial,sans-serif;color:#111}
@@ -180,7 +178,7 @@ export default function ServiceScales({ supabase, personnel, profile }: Props) {
       {shifts.map(shift => <div key={shift.start} style={{marginBottom:18}}>
         <h3 style={{marginBottom:8}}>{shift.label}</h3>
         <div className="table-wrap"><table><thead><tr><th>Policial</th><th>Matrícula</th><th>Classificação</th><th>Circunstância</th><th>Observações</th><th></th></tr></thead><tbody>
-          {rows.filter(r=>r.shift_start===shift.start).map(r=><tr key={r.id}><td>{r.personnel?.rank} {r.personnel?.war_name || r.personnel?.full_name}</td><td>{r.personnel?.service_number || "—"}</td><td>{r.duty_type}</td><td>{r.circumstance}</td><td>{r.notes || "—"}</td><td><button className="small-danger" onClick={()=>removeEntry(r.id)}>Retirar</button></td></tr>)}
+          {rows.filter(r=>String(r.shift_start || "").slice(0, 5)===shift.start).map(r=><tr key={r.id}><td>{r.personnel?.rank} {r.personnel?.war_name || r.personnel?.full_name}</td><td>{r.personnel?.service_number || "—"}</td><td>{r.duty_type}</td><td>{r.circumstance}</td><td>{r.notes || "—"}</td><td><button className="small-danger" onClick={()=>removeEntry(r.id)}>Retirar</button></td></tr>)}
           {!rows.some(r=>r.shift_start===shift.start) && <tr><td colSpan={6}>Nenhum policial neste horário.</td></tr>}
         </tbody></table></div>
       </div>)}

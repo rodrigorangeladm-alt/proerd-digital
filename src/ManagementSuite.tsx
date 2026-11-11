@@ -122,7 +122,7 @@ export default function ManagementSuite({ supabase, personnel, profile }: Props)
         .select("id,service_date,personnel_id,duty_type,shift_start,shift_end,circumstance,notes,personnel(id,full_name,war_name,rank,status)")
         .gte("service_date", weekStart).lte("service_date", weekEnd).order("service_date").order("shift_start"),
       supabase.from("instructor_hour_adjustments")
-        .select("id,personnel_id,adjustment_date,hours,reason")
+        .select("id,personnel_id,adjustment_date,hours,reason,personnel(id,full_name,war_name,rank,status)")
         .gte("adjustment_date", from).lte("adjustment_date", to).order("adjustment_date", { ascending: false }),
       supabase.from("operational_goals").select("*").order("created_at", { ascending: false }),
       supabase.from("institutional_integrations").select("*").order("created_at", { ascending: false }),

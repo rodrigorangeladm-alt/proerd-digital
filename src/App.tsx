@@ -27,6 +27,37 @@ type Personnel = {
   status: "Ativo" | "Afastado" | "Agregado" | "Inativo";
   linked_profile_id: string | null;
   notes: string | null;
+  cpf?: string | null;
+  rg?: string | null;
+  rg_issuing_agency?: string | null;
+  birth_date?: string | null;
+  sub_unit?: string | null;
+  team_definition?: string | null;
+  role_accumulation?: boolean | null;
+  seniority_classification?: string | null;
+  siape?: string | null;
+  access_login?: string | null;
+  pmdf_join_date?: string | null;
+  restrictions?: string | null;
+  proerd_number?: string | null;
+  proerd_training_year?: string | null;
+  cap_completion_date?: string | null;
+  caep_completion_date?: string | null;
+  choaem_completion_date?: string | null;
+  license_type?: string | null;
+  cnh_number?: string | null;
+  license_expiry_date?: string | null;
+  biennial_expiry_date?: string | null;
+  ballistic_vest_expiry_date?: string | null;
+  last_taf_date?: string | null;
+  head_circumference_cm?: number | null;
+  phone?: string | null;
+  phone2?: string | null;
+  email?: string | null;
+  email2?: string | null;
+  address?: string | null;
+  father_name?: string | null;
+  mother_name?: string | null;
   created_at?: string;
 };
 type Vehicle = {
@@ -111,7 +142,18 @@ export default function App() {
   const [leaveEdit, setLeaveEdit] = useState<Record<string, {status:string; sei_process_number:string; sei_status:string; administrative_note:string; decision_note:string}>>({});
   const [personnelSearch, setPersonnelSearch] = useState("");
   const [editingPersonnel, setEditingPersonnel] = useState<string | null>(null);
-  const emptyPersonnelForm = { full_name: "", war_name: "", service_number: "", rank: "", career_track: "", function_name: "", sector: "PROERD", status: "Ativo" as Personnel["status"], linked_profile_id: "", notes: "" };
+  const emptyPersonnelForm = {
+    full_name: "", war_name: "", service_number: "", rank: "", career_track: "",
+    function_name: "", sector: "PROERD", status: "Ativo" as Personnel["status"],
+    linked_profile_id: "", notes: "", cpf: "", rg: "", rg_issuing_agency: "",
+    birth_date: "", sub_unit: "PROERD", team_definition: "INSTRUTOR",
+    role_accumulation: false, seniority_classification: "", siape: "", access_login: "",
+    pmdf_join_date: "", restrictions: "", proerd_number: "", proerd_training_year: "",
+    cap_completion_date: "", caep_completion_date: "", choaem_completion_date: "",
+    license_type: "B", cnh_number: "", license_expiry_date: "", biennial_expiry_date: "",
+    ballistic_vest_expiry_date: "", last_taf_date: "", head_circumference_cm: "",
+    phone: "", phone2: "", email: "", email2: "", address: "", father_name: "", mother_name: ""
+  };
   const [personnelForm, setPersonnelForm] = useState(emptyPersonnelForm);
   const [roleSaving, setRoleSaving] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -268,11 +310,27 @@ export default function App() {
   function startPersonnelEdit(person: Personnel) {
     setEditingPersonnel(person.id);
     setPersonnelForm({
+      ...emptyPersonnelForm,
       full_name: person.full_name || "", war_name: person.war_name || "",
       service_number: person.service_number || "", rank: person.rank || "",
       career_track: person.career_track || "", function_name: person.function_name || "",
       sector: person.sector || "PROERD", status: person.status || "Ativo",
-      linked_profile_id: person.linked_profile_id || "", notes: person.notes || ""
+      linked_profile_id: person.linked_profile_id || "", notes: person.notes || "",
+      cpf: person.cpf || "", rg: person.rg || "", rg_issuing_agency: person.rg_issuing_agency || "",
+      birth_date: person.birth_date || "", sub_unit: person.sub_unit || "",
+      team_definition: person.team_definition || "", role_accumulation: Boolean(person.role_accumulation),
+      seniority_classification: person.seniority_classification || "", siape: person.siape || "",
+      access_login: person.access_login || "", pmdf_join_date: person.pmdf_join_date || "",
+      restrictions: person.restrictions || "", proerd_number: person.proerd_number || "",
+      proerd_training_year: person.proerd_training_year || "", cap_completion_date: person.cap_completion_date || "",
+      caep_completion_date: person.caep_completion_date || "", choaem_completion_date: person.choaem_completion_date || "",
+      license_type: person.license_type || "B", cnh_number: person.cnh_number || "",
+      license_expiry_date: person.license_expiry_date || "", biennial_expiry_date: person.biennial_expiry_date || "",
+      ballistic_vest_expiry_date: person.ballistic_vest_expiry_date || "", last_taf_date: person.last_taf_date || "",
+      head_circumference_cm: person.head_circumference_cm?.toString() || "",
+      phone: person.phone || "", phone2: person.phone2 || "", email: person.email || "",
+      email2: person.email2 || "", address: person.address || "", father_name: person.father_name || "",
+      mother_name: person.mother_name || ""
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -295,7 +353,38 @@ export default function App() {
       sector: personnelForm.sector.trim() || "PROERD",
       status: personnelForm.status,
       linked_profile_id: personnelForm.linked_profile_id || null,
-      notes: personnelForm.notes.trim() || null
+      notes: personnelForm.notes.trim() || null,
+      cpf: personnelForm.cpf.trim() || null,
+      rg: personnelForm.rg.trim() || null,
+      rg_issuing_agency: personnelForm.rg_issuing_agency.trim() || null,
+      birth_date: personnelForm.birth_date || null,
+      sub_unit: personnelForm.sub_unit.trim() || null,
+      team_definition: personnelForm.team_definition.trim() || null,
+      role_accumulation: personnelForm.role_accumulation,
+      seniority_classification: personnelForm.seniority_classification.trim() || null,
+      siape: personnelForm.siape.trim() || null,
+      access_login: personnelForm.access_login.trim() || null,
+      pmdf_join_date: personnelForm.pmdf_join_date || null,
+      restrictions: personnelForm.restrictions.trim() || null,
+      proerd_number: personnelForm.proerd_number.trim() || null,
+      proerd_training_year: personnelForm.proerd_training_year.trim() || null,
+      cap_completion_date: personnelForm.cap_completion_date || null,
+      caep_completion_date: personnelForm.caep_completion_date || null,
+      choaem_completion_date: personnelForm.choaem_completion_date || null,
+      license_type: personnelForm.license_type || null,
+      cnh_number: personnelForm.cnh_number.trim() || null,
+      license_expiry_date: personnelForm.license_expiry_date || null,
+      biennial_expiry_date: personnelForm.biennial_expiry_date || null,
+      ballistic_vest_expiry_date: personnelForm.ballistic_vest_expiry_date || null,
+      last_taf_date: personnelForm.last_taf_date || null,
+      head_circumference_cm: personnelForm.head_circumference_cm.trim() ? Number(personnelForm.head_circumference_cm) : null,
+      phone: personnelForm.phone.trim() || null,
+      phone2: personnelForm.phone2.trim() || null,
+      email: personnelForm.email.trim() || null,
+      email2: personnelForm.email2.trim() || null,
+      address: personnelForm.address.trim() || null,
+      father_name: personnelForm.father_name.trim() || null,
+      mother_name: personnelForm.mother_name.trim() || null
     };
     const result = editingPersonnel
       ? await supabase.from("personnel").update(payload).eq("id", editingPersonnel)
@@ -685,33 +774,104 @@ export default function App() {
         <div className="two-col">
           <form className="panel form" onSubmit={savePersonnel}>
             <h3><Plus size={18}/>{editingPersonnel ? "Editar cadastro funcional" : "Novo policial"}</h3>
-            <Field label="Nome completo"><input required value={personnelForm.full_name} onChange={e=>setPersonnelForm({...personnelForm,full_name:e.target.value})} placeholder="Nome fictício completo"/></Field>
-            <div className="form-row">
-              <Field label="Nome de guerra"><input value={personnelForm.war_name} onChange={e=>setPersonnelForm({...personnelForm,war_name:e.target.value})}/></Field>
-              <Field label="Matrícula fictícia"><input value={personnelForm.service_number} onChange={e=>setPersonnelForm({...personnelForm,service_number:e.target.value})}/></Field>
+
+            <div className="panel">
+              <h3>Identificação</h3>
+              <Field label="Nome completo"><input required value={personnelForm.full_name} onChange={e=>setPersonnelForm({...personnelForm,full_name:e.target.value})} placeholder="Nome fictício completo"/></Field>
+              <div className="form-row">
+                <Field label="Nome de guerra"><input required value={personnelForm.war_name} onChange={e=>setPersonnelForm({...personnelForm,war_name:e.target.value})}/></Field>
+                <Field label="Matrícula"><input required value={personnelForm.service_number} onChange={e=>setPersonnelForm({...personnelForm,service_number:e.target.value})}/></Field>
+              </div>
+              <div className="form-row">
+                <Field label="CPF fictício"><input value={personnelForm.cpf} onChange={e=>setPersonnelForm({...personnelForm,cpf:e.target.value})} placeholder="000.000.000-00"/></Field>
+                <Field label="RG"><input value={personnelForm.rg} onChange={e=>setPersonnelForm({...personnelForm,rg:e.target.value})}/></Field>
+                <Field label="Órgão expedidor do RG"><input value={personnelForm.rg_issuing_agency} onChange={e=>setPersonnelForm({...personnelForm,rg_issuing_agency:e.target.value})}/></Field>
+                <Field label="Data de nascimento"><input type="date" value={personnelForm.birth_date} onChange={e=>setPersonnelForm({...personnelForm,birth_date:e.target.value})}/></Field>
+              </div>
             </div>
-            <div className="form-row">
-              <Field label="Posto/graduação"><input required value={personnelForm.rank} onChange={e=>setPersonnelForm({...personnelForm,rank:e.target.value})} placeholder="Ex.: 2º Sargento"/></Field>
-              <Field label="Quadro"><input value={personnelForm.career_track} onChange={e=>setPersonnelForm({...personnelForm,career_track:e.target.value})} placeholder="Ex.: QPPMC"/></Field>
+
+            <div className="panel">
+              <h3>Dados funcionais</h3>
+              <div className="form-row">
+                <Field label="Posto / graduação"><select required value={personnelForm.rank} onChange={e=>setPersonnelForm({...personnelForm,rank:e.target.value})}><option value="">Selecione</option>{["Coronel","Tenente-Coronel","Major","Capitão","1º Tenente","2º Tenente","Aspirante","Subtenente","1º Sargento","2º Sargento","3º Sargento","Cabo","Soldado"].map(v=><option key={v}>{v}</option>)}</select></Field>
+                <Field label="Quadro"><input value={personnelForm.career_track} onChange={e=>setPersonnelForm({...personnelForm,career_track:e.target.value})} placeholder="Ex.: QPPMC"/></Field>
+                <Field label="Situação"><select value={personnelForm.status} onChange={e=>setPersonnelForm({...personnelForm,status:e.target.value as Personnel["status"]})}><option>Ativo</option><option>Afastado</option><option>Agregado</option><option>Inativo</option></select></Field>
+                <Field label="Equipe / definição"><select value={personnelForm.team_definition} onChange={e=>setPersonnelForm({...personnelForm,team_definition:e.target.value})}><option value="">Selecione</option><option>INSTRUTOR</option><option>GESTÃO</option><option>COORDENAÇÃO</option><option>APOIO ADMINISTRATIVO</option></select></Field>
+              </div>
+              <div className="form-row">
+                <Field label="Unidade"><input required value={personnelForm.sector} onChange={e=>setPersonnelForm({...personnelForm,sector:e.target.value})} placeholder="Ex.: BPESC"/></Field>
+                <Field label="Subunidade"><input required value={personnelForm.sub_unit} onChange={e=>setPersonnelForm({...personnelForm,sub_unit:e.target.value})} placeholder="Ex.: PROERD"/></Field>
+              </div>
+              <label className="field"><span><input type="checkbox" checked={personnelForm.role_accumulation} onChange={e=>setPersonnelForm({...personnelForm,role_accumulation:e.target.checked})}/> Policial com acumulação de cargo / SEDUC - EJA noturno</span></label>
+              <small className="muted">Marque quando houver acumulação de cargo e necessidade de compatibilização de horários.</small>
+              <div className="form-row">
+                <Field label="Classificação / antiguidade"><input value={personnelForm.seniority_classification} onChange={e=>setPersonnelForm({...personnelForm,seniority_classification:e.target.value})}/></Field>
+                <Field label="SIAPE"><input value={personnelForm.siape} onChange={e=>setPersonnelForm({...personnelForm,siape:e.target.value})}/></Field>
+                <Field label="Login de acesso"><input value={personnelForm.access_login} onChange={e=>setPersonnelForm({...personnelForm,access_login:e.target.value})}/></Field>
+                <Field label="Data de inclusão na PMDF"><input type="date" value={personnelForm.pmdf_join_date} onChange={e=>setPersonnelForm({...personnelForm,pmdf_join_date:e.target.value})}/></Field>
+              </div>
+              <Field label="Restrições (selecione ou descreva)"><textarea value={personnelForm.restrictions} onChange={e=>setPersonnelForm({...personnelForm,restrictions:e.target.value})} placeholder="Restrições funcionais fictícias, se houver"/></Field>
+              <div className="form-row">
+                <Field label="Função"><input value={personnelForm.function_name} onChange={e=>setPersonnelForm({...personnelForm,function_name:e.target.value})} placeholder="Função administrativa"/></Field>
+                <Field label="Vincular conta de acesso"><select value={personnelForm.linked_profile_id} onChange={e=>setPersonnelForm({...personnelForm,linked_profile_id:e.target.value})}><option value="">Sem vínculo</option>{users.map(u=><option key={u.id} value={u.id}>{u.full_name || u.email || "Usuário"} ({u.role==="admin"?"Administrador":"Instrutor"})</option>)}</select></Field>
+              </div>
             </div>
-            <div className="form-row">
-              <Field label="Função"><input value={personnelForm.function_name} onChange={e=>setPersonnelForm({...personnelForm,function_name:e.target.value})} placeholder="Função administrativa"/></Field>
-              <Field label="Setor/lotação"><input required value={personnelForm.sector} onChange={e=>setPersonnelForm({...personnelForm,sector:e.target.value})}/></Field>
+
+            <div className="panel">
+              <h3>PROERD e formação</h3>
+              <div className="form-row">
+                <Field label="Número PROERD"><input value={personnelForm.proerd_number} onChange={e=>setPersonnelForm({...personnelForm,proerd_number:e.target.value})}/></Field>
+                <Field label="Ano de formação PROERD"><input value={personnelForm.proerd_training_year} onChange={e=>setPersonnelForm({...personnelForm,proerd_training_year:e.target.value})} placeholder="AAAA"/></Field>
+                <Field label="Conclusão do CAP"><input type="date" value={personnelForm.cap_completion_date} onChange={e=>setPersonnelForm({...personnelForm,cap_completion_date:e.target.value})}/></Field>
+                <Field label="Conclusão do CAEP"><input type="date" value={personnelForm.caep_completion_date} onChange={e=>setPersonnelForm({...personnelForm,caep_completion_date:e.target.value})}/></Field>
+              </div>
+              <Field label="Conclusão do CHOAEM"><input type="date" value={personnelForm.choaem_completion_date} onChange={e=>setPersonnelForm({...personnelForm,choaem_completion_date:e.target.value})}/></Field>
             </div>
-            <div className="form-row">
-              <Field label="Situação funcional"><select value={personnelForm.status} onChange={e=>setPersonnelForm({...personnelForm,status:e.target.value as Personnel["status"]})}><option>Ativo</option><option>Afastado</option><option>Agregado</option><option>Inativo</option></select></Field>
-              <Field label="Vincular conta de acesso"><select value={personnelForm.linked_profile_id} onChange={e=>setPersonnelForm({...personnelForm,linked_profile_id:e.target.value})}><option value="">Sem vínculo</option>{users.map(u=><option key={u.id} value={u.id}>{u.full_name || u.email || "Usuário"} ({u.role==="admin"?"Administrador":"Instrutor"})</option>)}</select></Field>
+
+            <div className="panel">
+              <h3>Habilitação e prazos</h3>
+              <div className="form-row">
+                <Field label="Tipo de habilitação"><select value={personnelForm.license_type} onChange={e=>setPersonnelForm({...personnelForm,license_type:e.target.value})}><option value="">Não informado</option>{["A","B","AB","C","D","E","AC","AD","AE"].map(v=><option key={v}>{v}</option>)}</select></Field>
+                <Field label="Nº da CNH"><input value={personnelForm.cnh_number} onChange={e=>setPersonnelForm({...personnelForm,cnh_number:e.target.value})}/></Field>
+                <Field label="Vencimento da habilitação"><input type="date" value={personnelForm.license_expiry_date} onChange={e=>setPersonnelForm({...personnelForm,license_expiry_date:e.target.value})}/></Field>
+                <Field label="Vencimento bienal"><input type="date" value={personnelForm.biennial_expiry_date} onChange={e=>setPersonnelForm({...personnelForm,biennial_expiry_date:e.target.value})}/></Field>
+              </div>
+              <div className="form-row">
+                <Field label="Vencimento do colete balístico"><input type="date" value={personnelForm.ballistic_vest_expiry_date} onChange={e=>setPersonnelForm({...personnelForm,ballistic_vest_expiry_date:e.target.value})}/></Field>
+                <Field label="Último TAF"><input type="date" value={personnelForm.last_taf_date} onChange={e=>setPersonnelForm({...personnelForm,last_taf_date:e.target.value})}/></Field>
+                <Field label="Circunferência da cabeça (cm)"><input type="number" min="0" step="0.1" value={personnelForm.head_circumference_cm} onChange={e=>setPersonnelForm({...personnelForm,head_circumference_cm:e.target.value})}/></Field>
+              </div>
             </div>
-            <Field label="Observações"><textarea value={personnelForm.notes} onChange={e=>setPersonnelForm({...personnelForm,notes:e.target.value})} placeholder="Somente informações fictícias para a PoC."/></Field>
+
+            <div className="panel">
+              <h3>Contato e informações pessoais</h3>
+              <div className="form-row">
+                <Field label="Telefone"><input value={personnelForm.phone} onChange={e=>setPersonnelForm({...personnelForm,phone:e.target.value})}/></Field>
+                <Field label="Telefone 2"><input value={personnelForm.phone2} onChange={e=>setPersonnelForm({...personnelForm,phone2:e.target.value})}/></Field>
+                <Field label="E-mail"><input type="email" value={personnelForm.email} onChange={e=>setPersonnelForm({...personnelForm,email:e.target.value})}/></Field>
+                <Field label="E-mail 2"><input type="email" value={personnelForm.email2} onChange={e=>setPersonnelForm({...personnelForm,email2:e.target.value})}/></Field>
+              </div>
+              <Field label="Domicílio / residência"><input value={personnelForm.address} onChange={e=>setPersonnelForm({...personnelForm,address:e.target.value})}/></Field>
+              <div className="form-row">
+                <Field label="Nome do pai"><input value={personnelForm.father_name} onChange={e=>setPersonnelForm({...personnelForm,father_name:e.target.value})}/></Field>
+                <Field label="Nome da mãe"><input value={personnelForm.mother_name} onChange={e=>setPersonnelForm({...personnelForm,mother_name:e.target.value})}/></Field>
+              </div>
+            </div>
+
+            <div className="panel">
+              <h3>Observações</h3>
+              <Field label="Observações administrativas"><textarea value={personnelForm.notes} onChange={e=>setPersonnelForm({...personnelForm,notes:e.target.value})} placeholder="Somente informações fictícias para a PoC."/></Field>
+            </div>
+
             <div className="actions"><button className="primary" type="submit">{editingPersonnel ? "Salvar alterações" : "Cadastrar policial"}</button>{editingPersonnel && <button type="button" className="small-secondary" onClick={resetPersonnelForm}>Cancelar edição</button>}</div>
-            <p className="muted small-note">Use exclusivamente dados fictícios nesta prova de conceito.</p>
+            <p className="muted small-note">Use exclusivamente dados fictícios nesta prova de conceito. O acesso a dados pessoais reais exige revisão de segurança e LGPD.</p>
           </form>
           <div className="panel">
             <div className="users-heading"><div><h3>Efetivo cadastrado</h3><p>Pesquise por nome, nome de guerra, matrícula ou posto/graduação.</p></div></div>
             <Field label="Pesquisar efetivo"><input value={personnelSearch} onChange={e=>setPersonnelSearch(e.target.value)} placeholder="Digite para pesquisar..."/></Field>
-            {personnel.filter(p=>[p.full_name,p.war_name,p.service_number,p.rank,p.sector].some(v=>(v||"").toLowerCase().includes(personnelSearch.toLowerCase()))).length===0
+            {personnel.filter(p=>[p.full_name,p.war_name,p.service_number,p.rank,p.sector,p.cpf,p.siape,p.proerd_number].some(v=>(v||"").toLowerCase().includes(personnelSearch.toLowerCase()))).length===0
               ? <Empty text="Nenhum policial encontrado."/>
-              : <div className="records">{personnel.filter(p=>[p.full_name,p.war_name,p.service_number,p.rank,p.sector].some(v=>(v||"").toLowerCase().includes(personnelSearch.toLowerCase()))).map(p=><div className="record" key={p.id}>
+              : <div className="records">{personnel.filter(p=>[p.full_name,p.war_name,p.service_number,p.rank,p.sector,p.cpf,p.siape,p.proerd_number].some(v=>(v||"").toLowerCase().includes(personnelSearch.toLowerCase()))).map(p=><div className="record" key={p.id}>
                 <div className="record-icon"><Users size={18}/></div><div className="record-main"><b>{p.full_name}</b><small>{p.war_name ? `${p.war_name} · ` : ""}{p.rank} · {p.sector}</small><small>{p.service_number || "Sem matrícula"} · {p.status} · {p.linked_profile_id ? "Conta vinculada" : "Sem conta vinculada"}</small>
                 <div className="actions"><button type="button" className="small-secondary" onClick={()=>startPersonnelEdit(p)}>Editar</button>{p.status!=="Inativo" && <button type="button" className="small-danger" onClick={()=>deactivatePersonnel(p)}>Inativar</button>}</div></div>
               </div>)}</div>}

@@ -12,9 +12,11 @@ import CommunicationCenter from "./CommunicationCenter";
 import DocumentsLibrary from "./DocumentsLibrary";
 import ServiceScales from "./ServiceScales";
 import ManagementSuite from "./ManagementSuite";
+import AdminNotifications from "./AdminNotifications";
+import HolidaysCalendar from "./HolidaysCalendar";
 import "./management-suite.css";
 
-type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal" | "communication" | "documents" | "scales" | "managementSuite";
+type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal" | "communication" | "documents" | "scales" | "managementSuite" | "calendar";
 type Personnel = {
   id: string;
   full_name: string;
@@ -723,6 +725,7 @@ export default function App() {
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
     {id:"communication" as Tab,label:"Comunicação e avisos",icon:Bell},
     {id:"documents" as Tab,label:"Documentos institucionais",icon:BookOpen},
+    {id:"calendar" as Tab,label:"Calendário e feriados",icon:CalendarDays},
     {id:"scales" as Tab,label:"Escalas",icon:CalendarDays},
     ...(profile.role === "admin" ? [{id:"managementSuite" as Tab,label:"Gestão Estratégica",icon:ActivityIcon}] : []),
     ...(profile.role === "admin" ? [{id:"reports" as Tab,label:"Relatórios",icon:ActivityIcon}] : []),
@@ -745,9 +748,10 @@ export default function App() {
       <div className="sidebar-bottom"><span className="env"><span/> Ambiente de testes</span><button className="nav-item" onClick={()=>supabase?.auth.signOut()}><LogOut size={18}/> Sair</button></div>
     </aside>
     <main className="main">
-      <header className="topbar"><div><div className="eyebrow">PLATAFORMA INTEGRADA DE GESTÃO</div><h1>{menu.find(m=>m.id===tab)?.label}</h1></div><div className="top-actions"><span className="role-tag">{profile.role === "admin" ? "ADMINISTRAÇÃO" : "INSTRUTOR"}</span><button className="icon-btn" onClick={refresh} title="Atualizar"><RefreshCw size={18}/></button></div></header>
+      <header className="topbar"><div><div className="eyebrow">PLATAFORMA INTEGRADA DE GESTÃO</div><h1>{menu.find(m=>m.id===tab)?.label}</h1></div><div className="top-actions">{profile.role === "admin" && <AdminNotifications supabase={supabase} profile={profile}/>}<span className="role-tag">{profile.role === "admin" ? "ADMINISTRAÇÃO" : "INSTRUTOR"}</span><button className="icon-btn" onClick={refresh} title="Atualizar"><RefreshCw size={18}/></button></div></header>
       {notice && <div className="notice-bar"><AlertCircle size={17}/>{notice}<button onClick={()=>setNotice("")}><X size={16}/></button></div>}
       {loading && <div className="loading-line"/>}
+      {tab==="calendar" && <HolidaysCalendar supabase={supabase} profile={profile}/>}
       {tab==="dashboard" && <section>
         <div className="welcome"><div><h2>Bem-vindo ao PROERD DIGITAL</h2><p>Ambiente controlado para validar o fluxo administrativo antes de uma implantação institucional.</p></div><ShieldCheck size={42}/></div>
         <div className="stats">

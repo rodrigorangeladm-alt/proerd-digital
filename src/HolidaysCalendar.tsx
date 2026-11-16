@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, RefreshCw, Trash2,
-  CalendarCheck, AlertCircle, Clock, School, UserRound, Shield, ClipboardList
+  CalendarCheck, AlertCircle, Clock, UserRound, Shield, ClipboardList, X, Search
 } from "lucide-react";
 
 const STATES = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
@@ -66,6 +66,10 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [filterType, setFilterType] = useState("todos");
+  const [filterInstructor, setFilterInstructor] = useState("todos");
+  const [filterSchool, setFilterSchool] = useState("todos");
+  const [selectedEvent, setSelectedEvent] = useState<{type:string;title:string;subtitle:string;details:string[]}|null>(null);
   const isAdmin = profile?.role === "admin";
   const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
   const monthEnd = `${year}-${String(month + 1).padStart(2, "0")}-${new Date(year, month + 1, 0).getDate()}`;
@@ -136,6 +140,33 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
   const selectedScales = monthScales.filter(item => item.service_date === selectedDate);
   const selectedDemands = monthDemands.filter(item => item.preferred_date === selectedDate);
   const selectedHolidays = allHolidays.filter(item => item.holiday_date === selectedDate);
+  const instructorOptions = useMemo(() => {
+    const map = new Map<string,string>();
+    [...activities.map(x => [x.instructor_id, x.instructor?.full_name] as const),
+     ...demands.map(x => [x.assigned_to || "", x.assignee?.full_name] as const),
+     ...scales.map(x => [x.personnel_id, x.personnel?.full_name || x.personnel?.war_name] as const)]
+      .forEach(([id,label]) => { if(id && label) map.set(id,label); });
+    return [...map].map(([id,label])=>({id,label})).sort((a,b)=>a.label.localeCompare(b.label,"pt-BR"));
+  },[activities,demands,scales]);
+  const schoolOptions = useMemo(() => {
+    const map = new Map<string,string>();
+    [...activities,...demands].forEach(x=>{if(x.school_id && x.schools?.name) map.set(x.school_id,x.schools.name);});
+    return [...map].map(([id,label])=>({id,label})).sort((a,b)=>a.label.localeCompare(b.label,"pt-BR"));
+  },[activities,demands]);
+  const visibleActivities = selectedActivities.filter(x =>
+    (filterType==="todos"||filterType==="atividade") &&
+    (filterInstructor==="todos"||x.instructor_id===filterInstructor) &&
+    (filterSchool==="todos"||x.school_id===filterSchool));
+  const visibleScales = selectedScales.filter(x =>
+    (filterType==="todos"||filterType==="escala") &&
+    (filterInstructor==="todos"||x.personnel_id===filterInstructor));
+  const visibleDemands = selectedDemands.filter(x =>
+    (filterType==="todos"||filterType==="demanda") &&
+    (filterInstructor==="todos"||(x.assigned_to||"")===filterInstructor) &&
+    (filterSchool==="todos"||x.school_id===filterSchool));
+  const visibleHolidays = (filterType==="todos"||filterType==="feriado") ? selectedHolidays : [];
+  const visibleEventCount = visibleActivities.length+visibleScales.length+visibleDemands.length+visibleHolidays.length;
+
 
   function moveMonth(delta: number) {
     const next = new Date(year, month + delta, 1);
@@ -174,7 +205,6 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
     setMessage("Feriado removido."); setHolidays(current => current.filter(item => item.id !== id));
   }
 
-  const eventCount = selectedActivities.length + selectedScales.length + selectedDemands.length + selectedHolidays.length;
 
   return (
     <section className="holiday-page">
@@ -188,6 +218,19 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
         </div>
       </div>
 
+      <div className="calendar-filter-bar panel">
+        <div className="calendar-filter-title"><Search size={16}/><b>Filtros</b></div>
+        <label className="field"><span>Tipo de evento</span><select value={filterType} onChange={e=>setFilterType(e.target.value)}>
+          <option value="todos">Todos</option><option value="escala">Escalas</option><option value="demanda">Demandas</option><option value="atividade">Atividades agendadas</option><option value="feriado">Feriados</option>
+        </select></label>
+        <label className="field"><span>Instrutor / policial</span><select value={filterInstructor} onChange={e=>setFilterInstructor(e.target.value)}>
+          <option value="todos">Todos</option>{instructorOptions.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}
+        </select></label>
+        <label className="field"><span>Escola</span><select value={filterSchool} onChange={e=>setFilterSchool(e.target.value)}>
+          <option value="todos">Todas</option>{schoolOptions.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}
+        </select></label>
+        <button type="button" className="small-secondary" onClick={()=>{setFilterType("todos");setFilterInstructor("todos");setFilterSchool("todos");}}>Limpar filtros</button>
+      </div>
       <div className="holiday-layout">
         <div className="panel holiday-calendar">
           <div className="calendar-toolbar">
@@ -201,10 +244,10 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
             {Array.from({ length: daysInMonth }, (_, index) => {
               const day = index + 1;
               const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-              const dayActivities = monthActivities.filter(item => item.scheduled_date === iso);
-              const dayScales = monthScales.filter(item => item.service_date === iso);
-              const dayDemands = monthDemands.filter(item => item.preferred_date === iso);
-              const dayHolidays = allHolidays.filter(item => item.holiday_date === iso);
+              const dayActivities = monthActivities.filter(item => item.scheduled_date === iso && (filterType==="todos"||filterType==="atividade") && (filterInstructor==="todos"||item.instructor_id===filterInstructor) && (filterSchool==="todos"||item.school_id===filterSchool));
+              const dayScales = monthScales.filter(item => item.service_date === iso && (filterType==="todos"||filterType==="escala") && (filterInstructor==="todos"||item.personnel_id===filterInstructor));
+              const dayDemands = monthDemands.filter(item => item.preferred_date === iso && (filterType==="todos"||filterType==="demanda") && (filterInstructor==="todos"||(item.assigned_to||"")===filterInstructor) && (filterSchool==="todos"||item.school_id===filterSchool));
+              const dayHolidays = allHolidays.filter(item => item.holiday_date === iso && (filterType==="todos"||filterType==="feriado"));
               const selected = selectedDate === iso;
               return (
                 <button type="button" key={iso}
@@ -232,23 +275,31 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
         <aside className="panel holiday-list">
           <div className="holiday-list-heading">
             <h3><CalendarCheck size={17} /> {dateLabel(selectedDate)}</h3>
-            <span className="count">{eventCount} eventos</span>
+            <span className="count">{visibleEventCount} eventos</span>
           </div>
 
-          {selectedHolidays.map((item, index) => <div className="holiday-row" key={`holiday-${index}`}>
+          {visibleHolidays.map((item, index) => <div className="holiday-row" key={`holiday-${index}`}>
             <div><b>{item.name}</b><small>{item.kind === "national" ? "Feriado nacional" : item.kind === "state" ? `Estadual · ${state}` : `Local · ${state}`}</small></div>
             {item.kind !== "national" && isAdmin && <button type="button" className="small-danger" onClick={() => removeHoliday(item.id)} disabled={busy} title="Excluir feriado"><Trash2 size={14} /></button>}
           </div>)}
 
-          {selectedScales.map(item => <div className="calendar-event-row" key={`scale-${item.id}`}>
+          {visibleScales.map(item => <button type="button" className="calendar-event-row calendar-event-card scale-card" key={`scale-${item.id}`} onClick={()=>setSelectedEvent({
+            type:"Escala policial", title:`${item.personnel?.rank||""} ${item.personnel?.war_name||item.personnel?.full_name||"Policial"}`.trim(),
+            subtitle:`${timeLabel(item.shift_start)} às ${timeLabel(item.shift_end)}`,
+            details:[`Nome completo: ${item.personnel?.full_name||"Não informado"}`,`Classificação: ${item.duty_type}`,`Circunstância: ${item.circumstance}`,`Matrícula: ${item.personnel?.service_number||"Não informada"}`,`Observações: ${item.notes||"Nenhuma"}`,`Data: ${dateLabel(item.service_date)}`]
+          })}>
             <div className="calendar-event-time"><Shield size={14} /><b>Escala · {timeLabel(item.shift_start)} às {timeLabel(item.shift_end)}</b></div>
             <b>{item.personnel?.rank || ""} {item.personnel?.war_name || item.personnel?.full_name || "Policial"}</b>
+            {item.personnel?.war_name && item.personnel?.full_name && <small>Nome completo: {item.personnel.full_name}</small>}
             <small>{item.duty_type} · {item.circumstance}</small>
             {item.personnel?.service_number && <small>Matrícula: {item.personnel.service_number}</small>}
             {item.notes && <small>{item.notes}</small>}
-          </div>)}
+          </button>)}
 
-          {selectedDemands.map(item => <div className="calendar-event-row" key={`demand-${item.id}`}>
+          {visibleDemands.map(item => <button type="button" className="calendar-event-row calendar-event-card demand-card" key={`demand-${item.id}`} onClick={()=>setSelectedEvent({
+            type:"Demanda escolar",title:item.schools?.name||"Escola não informada",subtitle:`${item.class_name} · ${item.activity_type}`,
+            details:[`Protocolo: ${item.protocol}`,`Data preferencial: ${dateLabel(item.preferred_date||selectedDate)}`,`Horário preferencial: ${timeLabel(item.preferred_time)||"A definir"}`,`Situação: ${item.status}`,`Instrutor: ${item.assignee?.full_name||"Não designado"}`,`Alunos estimados: ${item.estimated_students??"Não informado"}`,`Região: ${item.schools?.region||"Não informada"}`]
+          })}>
             <div className="calendar-event-time"><ClipboardList size={14} /><b>Demanda · {item.preferred_time ? timeLabel(item.preferred_time) : "Horário a definir"}</b></div>
             <b>{item.schools?.name || "Escola não informada"}</b>
             <small>{item.class_name} · {item.activity_type}</small>
@@ -256,9 +307,12 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
             <small>Situação: {item.status} · Data preferencial, não confirmação de agendamento</small>
             {item.assignee?.full_name && <small>Instrutor: {item.assignee.full_name}</small>}
             {item.estimated_students && <small>{item.estimated_students} alunos estimados</small>}
-          </div>)}
+          </button>)}
 
-          {selectedActivities.map(item => <div className="calendar-event-row" key={`activity-${item.id}`}>
+          {visibleActivities.map(item => <button type="button" className="calendar-event-row calendar-event-card activity-card" key={`activity-${item.id}`} onClick={()=>setSelectedEvent({
+            type:"Atividade agendada",title:item.schools?.name||"Escola não informada",subtitle:`${timeLabel(item.start_time)} às ${timeLabel(item.end_time)}`,
+            details:[`Data: ${dateLabel(item.scheduled_date)}`,`Turma: ${item.demands?.class_name||"Não informada"}`,`Atividade: ${item.demands?.activity_type||"Não informada"}`,`Instrutor: ${item.instructor?.full_name||"Não informado"}`,`Situação: ${item.status}`,`Protocolo: ${item.demands?.protocol||"Não informado"}`,`Observações: ${item.notes||"Nenhuma"}`]
+          })}>
             <div className="calendar-event-time"><Clock size={14} /><b>Atividade · {timeLabel(item.start_time)} às {timeLabel(item.end_time)}</b></div>
             <b>{item.schools?.name || "Escola não informada"}</b>
             <small>{item.demands?.class_name || "Turma não informada"} · {item.demands?.activity_type || "Atividade PROERD"}</small>
@@ -266,12 +320,21 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
             <span className={`status ${item.status === "Realizada" ? "green" : item.status === "Cancelada" ? "red" : item.status === "Agendada" ? "amber" : "blue"}`}>{item.status}</span>
             {item.demands?.protocol && <small>Protocolo: {item.demands.protocol}</small>}
             {item.notes && <small>{item.notes}</small>}
-          </div>)}
+          </button>)}
 
-          {eventCount === 0 && <p className="muted">Não há feriados, escalas, demandas ou atividades registrados nesta data.</p>}
+          {visibleEventCount===0 && <p className="muted">Não há eventos para esta data com os filtros selecionados.</p>}
         </aside>
       </div>
 
+      {selectedEvent && <div className="calendar-modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setSelectedEvent(null);}}>
+        <section className="calendar-event-modal panel" role="dialog" aria-modal="true" aria-labelledby="calendar-event-title">
+          <div className="calendar-modal-header"><div><span className="calendar-modal-type">{selectedEvent.type}</span><h3 id="calendar-event-title">{selectedEvent.title}</h3><p>{selectedEvent.subtitle}</p></div>
+            <button type="button" className="small-secondary" onClick={()=>setSelectedEvent(null)} aria-label="Fechar detalhes"><X size={17}/></button>
+          </div>
+          <div className="calendar-modal-details">{selectedEvent.details.map((line,i)=><div key={i}>{line}</div>)}</div>
+          <div className="calendar-modal-footer"><button type="button" className="small-primary" onClick={()=>setSelectedEvent(null)}>Fechar</button></div>
+        </section>
+      </div>}
       {isAdmin && <form className="panel holiday-form" onSubmit={addHoliday}>
         <h3><Plus size={18} /> Cadastrar feriado estadual ou local</h3>
         <p className="muted">Os feriados nacionais fixos são exibidos automaticamente. Cadastre datas estaduais ou municipais após conferir o calendário oficial aplicável.</p>

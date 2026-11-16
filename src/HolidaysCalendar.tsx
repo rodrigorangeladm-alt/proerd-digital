@@ -1,28 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, RefreshCw, Trash2,
-  CalendarCheck, AlertCircle, Clock, School, UserRound
+  CalendarCheck, AlertCircle, Clock, School, UserRound, Shield, ClipboardList
 } from "lucide-react";
 
 const STATES = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 const MONTHS = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const WEEKDAYS = ["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
 
-type HolidayKind = "state" | "local" | "national";
-type Holiday = { id?: string; holiday_date: string; name: string; state_code?: string; kind: HolidayKind };
+type Holiday = { id?: string; holiday_date: string; name: string; state_code?: string; kind: "state" | "local" | "national" };
 type CalendarActivity = {
-  id: string;
-  demand_id: string;
-  instructor_id: string;
-  school_id: string;
-  scheduled_date: string;
-  start_time: string;
-  end_time: string;
-  status: string;
-  notes: string | null;
+  id: string; demand_id: string; instructor_id: string; school_id: string;
+  scheduled_date: string; start_time: string; end_time: string; status: string; notes: string | null;
   demands?: { protocol?: string; class_name?: string; activity_type?: string } | null;
   schools?: { name?: string; region?: string } | null;
   instructor?: { full_name?: string } | null;
+};
+type CalendarScale = {
+  id: string; service_date: string; personnel_id: string; duty_type: string;
+  shift_start: string; shift_end: string; circumstance: string; notes: string | null;
+  personnel?: { full_name?: string; war_name?: string | null; rank?: string; service_number?: string | null } | null;
+};
+type CalendarDemand = {
+  id: string; protocol: string; school_id: string; class_name: string; activity_type: string;
+  preferred_date: string | null; preferred_time?: string | null; status: string;
+  assigned_to?: string | null; estimated_students?: number | null;
+  schools?: { name?: string; region?: string } | null;
+  assignee?: { full_name?: string } | null;
 };
 
 function localIsoDate(date = new Date()) {
@@ -32,19 +36,15 @@ function localIsoDate(date = new Date()) {
 function dateLabel(value: string) {
   return new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR");
 }
-function timeLabel(value: string) {
-  return String(value || "").slice(0, 5);
+function timeLabel(value?: string | null) {
+  return value ? String(value).slice(0, 5) : "";
 }
 function nationalHolidays(year: number): Holiday[] {
   return [
-    ["01-01", "Confraternização Universal"],
-    ["04-21", "Tiradentes"],
-    ["05-01", "Dia Mundial do Trabalho"],
-    ["09-07", "Independência do Brasil"],
-    ["10-12", "Nossa Senhora Aparecida"],
-    ["11-02", "Finados"],
-    ["11-15", "Proclamação da República"],
-    ["11-20", "Dia Nacional de Zumbi e da Consciência Negra"],
+    ["01-01", "Confraternização Universal"], ["04-21", "Tiradentes"],
+    ["05-01", "Dia Mundial do Trabalho"], ["09-07", "Independência do Brasil"],
+    ["10-12", "Nossa Senhora Aparecida"], ["11-02", "Finados"],
+    ["11-15", "Proclamação da República"], ["11-20", "Dia Nacional de Zumbi e da Consciência Negra"],
     ["12-25", "Natal"],
   ].map(([md, name]) => ({ holiday_date: `${year}-${md}`, name, kind: "national" as const }));
 }
@@ -57,6 +57,8 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
   const [selectedDate, setSelectedDate] = useState(today);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [activities, setActivities] = useState<CalendarActivity[]>([]);
+  const [scales, setScales] = useState<CalendarScale[]>([]);
+  const [demands, setDemands] = useState<CalendarDemand[]>([]);
   const [name, setName] = useState("");
   const [holidayDate, setHolidayDate] = useState(today);
   const [kind, setKind] = useState<"state" | "local">("state");
@@ -65,46 +67,60 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const isAdmin = profile?.role === "admin";
+  const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+  const monthEnd = `${year}-${String(month + 1).padStart(2, "0")}-${new Date(year, month + 1, 0).getDate()}`;
 
-  useEffect(() => {
-    let active = true;
-    async function load() {
-      if (!supabase) {
-        if (active) { setErrorMessage("Banco de dados não configurado."); setLoading(false); }
-        return;
-      }
-      setLoading(true);
-      const [preferenceResult, holidayResult, scheduleResult] = await Promise.all([
-        supabase.from("calendar_preferences").select("state_code").eq("id", 1).maybeSingle(),
-        supabase.from("calendar_holidays").select("id,holiday_date,name,state_code,kind")
-          .eq("state_code", state).gte("holiday_date", `${year}-01-01`)
-          .lte("holiday_date", `${year}-12-31`).order("holiday_date"),
-        supabase.from("service_schedule")
-          .select("id,demand_id,instructor_id,school_id,scheduled_date,start_time,end_time,status,notes,demands(protocol,class_name,activity_type),schools(name,region),instructor:profiles!service_schedule_instructor_id_fkey(full_name)")
-          .gte("scheduled_date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
-          .lte("scheduled_date", `${year}-${String(month + 1).padStart(2, "0")}-${new Date(year, month + 1, 0).getDate()}`)
-          .order("scheduled_date").order("start_time"),
-      ]);
-      if (!active) return;
-      if (preferenceResult.data?.state_code && preferenceResult.data.state_code !== state) setState(preferenceResult.data.state_code);
-      if (holidayResult.error) {
-        setHolidays([]);
-        setErrorMessage(`Falha ao carregar feriados: ${holidayResult.error.message}`);
-      } else {
-        setHolidays(holidayResult.data || []);
-        setErrorMessage("");
-      }
-      if (scheduleResult.error) {
-        setActivities([]);
-        setErrorMessage(current => current ? `${current} | Falha ao carregar atividades: ${scheduleResult.error.message}` : `Falha ao carregar atividades: ${scheduleResult.error.message}`);
-      } else {
-        setActivities(scheduleResult.data || []);
-      }
+  async function fetchCalendar() {
+    if (!supabase) throw new Error("Banco de dados não configurado.");
+    const [pref, holidayResult, scheduleResult, scaleResult, demandResult] = await Promise.all([
+      supabase.from("calendar_preferences").select("state_code").eq("id", 1).maybeSingle(),
+      supabase.from("calendar_holidays").select("id,holiday_date,name,state_code,kind")
+        .eq("state_code", state).gte("holiday_date", `${year}-01-01`).lte("holiday_date", `${year}-12-31`).order("holiday_date"),
+      supabase.from("service_schedule")
+        .select("id,demand_id,instructor_id,school_id,scheduled_date,start_time,end_time,status,notes,demands(protocol,class_name,activity_type),schools(name,region),instructor:profiles!service_schedule_instructor_id_fkey(full_name)")
+        .gte("scheduled_date", monthStart).lte("scheduled_date", monthEnd).order("scheduled_date").order("start_time"),
+      supabase.from("service_scale_entries")
+        .select("id,service_date,personnel_id,duty_type,shift_start,shift_end,circumstance,notes,personnel(id,full_name,war_name,service_number,rank,status)")
+        .gte("service_date", monthStart).lte("service_date", monthEnd).order("service_date").order("shift_start"),
+      supabase.from("demands")
+        .select("id,protocol,school_id,class_name,activity_type,preferred_date,preferred_time,status,assigned_to,estimated_students,schools(name,region),assignee:profiles!demands_assigned_to_fkey(full_name)")
+        .gte("preferred_date", monthStart).lte("preferred_date", monthEnd).order("preferred_date"),
+    ]);
+
+    const errors = [
+      holidayResult.error && `Feriados: ${holidayResult.error.message}`,
+      scheduleResult.error && `Atividades agendadas: ${scheduleResult.error.message}`,
+      scaleResult.error && `Escalas: ${scaleResult.error.message}`,
+      demandResult.error && `Demandas: ${demandResult.error.message}`,
+    ].filter(Boolean);
+    return {
+      preference: pref.data?.state_code as string | undefined,
+      holidays: (holidayResult.data || []) as Holiday[],
+      activities: (scheduleResult.data || []) as CalendarActivity[],
+      scales: (scaleResult.data || []) as CalendarScale[],
+      demands: (demandResult.data || []) as CalendarDemand[],
+      errors,
+    };
+  }
+
+  async function loadCalendar() {
+    setLoading(true);
+    try {
+      const result = await fetchCalendar();
+      if (result.preference && result.preference !== state) setState(result.preference);
+      setHolidays(result.holidays);
+      setActivities(result.activities);
+      setScales(result.scales);
+      setDemands(result.demands);
+      setErrorMessage(result.errors.join(" | "));
+    } catch (error: any) {
+      setErrorMessage(error?.message || "Não foi possível carregar o calendário.");
+    } finally {
       setLoading(false);
     }
-    load();
-    return () => { active = false; };
-  }, [supabase, state, year, month]);
+  }
+
+  useEffect(() => { loadCalendar(); }, [supabase, state, year, month]);
 
   const allHolidays = useMemo(
     () => [...nationalHolidays(year), ...holidays].sort((a, b) => a.holiday_date.localeCompare(b.holiday_date)),
@@ -114,20 +130,21 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const offset = (firstDay.getDay() + 6) % 7;
   const monthActivities = activities.filter(item => item.scheduled_date.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`));
-  const monthHolidays = allHolidays.filter(item => Number(item.holiday_date.slice(5, 7)) === month + 1);
+  const monthScales = scales.filter(item => item.service_date.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`));
+  const monthDemands = demands.filter(item => !!item.preferred_date && item.preferred_date.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`));
   const selectedActivities = monthActivities.filter(item => item.scheduled_date === selectedDate);
+  const selectedScales = monthScales.filter(item => item.service_date === selectedDate);
+  const selectedDemands = monthDemands.filter(item => item.preferred_date === selectedDate);
   const selectedHolidays = allHolidays.filter(item => item.holiday_date === selectedDate);
 
   function moveMonth(delta: number) {
     const next = new Date(year, month + delta, 1);
-    setYear(next.getFullYear());
-    setMonth(next.getMonth());
+    setYear(next.getFullYear()); setMonth(next.getMonth());
     setSelectedDate(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`);
   }
 
   async function chooseState(next: string) {
-    setState(next);
-    setMessage("");
+    setState(next); setMessage("");
     const { error } = await supabase.from("calendar_preferences").upsert({
       id: 1, state_code: next, updated_by: profile.id, updated_at: new Date().toISOString(),
     }, { onConflict: "id" });
@@ -145,9 +162,7 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
     setBusy(false);
     if (error) { setErrorMessage(`Não foi possível cadastrar o feriado: ${error.message}`); return; }
     setName(""); setHolidayDate(today); setMessage("Feriado cadastrado com sucesso.");
-    const { data } = await supabase.from("calendar_holidays").select("id,holiday_date,name,state_code,kind")
-      .eq("state_code", state).gte("holiday_date", `${year}-01-01`).lte("holiday_date", `${year}-12-31`).order("holiday_date");
-    setHolidays(data || []);
+    await loadCalendar();
   }
 
   async function removeHoliday(id?: string) {
@@ -156,44 +171,20 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
     const { error } = await supabase.from("calendar_holidays").delete().eq("id", id);
     setBusy(false);
     if (error) { setErrorMessage(`Não foi possível excluir: ${error.message}`); return; }
-    setMessage("Feriado removido.");
-    setHolidays(current => current.filter(item => item.id !== id));
+    setMessage("Feriado removido."); setHolidays(current => current.filter(item => item.id !== id));
   }
 
-  async function refreshCalendar() {
-    setLoading(true);
-    const [h, s] = await Promise.all([
-      supabase.from("calendar_holidays").select("id,holiday_date,name,state_code,kind")
-        .eq("state_code", state).gte("holiday_date", `${year}-01-01`).lte("holiday_date", `${year}-12-31`).order("holiday_date"),
-      supabase.from("service_schedule")
-        .select("id,demand_id,instructor_id,school_id,scheduled_date,start_time,end_time,status,notes,demands(protocol,class_name,activity_type),schools(name,region),instructor:profiles!service_schedule_instructor_id_fkey(full_name)")
-        .gte("scheduled_date", `${year}-${String(month + 1).padStart(2, "0")}-01`)
-        .lte("scheduled_date", `${year}-${String(month + 1).padStart(2, "0")}-${new Date(year, month + 1, 0).getDate()}`)
-        .order("scheduled_date").order("start_time"),
-    ]);
-    if (h.error || s.error) setErrorMessage([h.error?.message, s.error?.message].filter(Boolean).join(" | "));
-    else setErrorMessage("");
-    setHolidays(h.data || []);
-    setActivities(s.data || []);
-    setLoading(false);
-  }
+  const eventCount = selectedActivities.length + selectedScales.length + selectedDemands.length + selectedHolidays.length;
 
   return (
     <section className="holiday-page">
       <div className="section-head">
-        <div>
-          <h2><CalendarDays size={21} /> Calendário integrado</h2>
-          <p>Visualize feriados e atividades programadas do PROERD em um único calendário.</p>
-        </div>
+        <div><h2><CalendarDays size={21} /> Calendário integrado</h2><p>Feriados, escalas policiais, demandas e atividades programadas do PROERD.</p></div>
         <div className="holiday-calendar-actions">
           {isAdmin && <label className="holiday-state-picker">Estado de referência
-            <select value={state} onChange={event => chooseState(event.target.value)}>
-              {STATES.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-            </select>
+            <select value={state} onChange={event => chooseState(event.target.value)}>{STATES.map(uf => <option key={uf} value={uf}>{uf}</option>)}</select>
           </label>}
-          <button type="button" className="small-secondary" onClick={refreshCalendar} disabled={loading || busy}>
-            <RefreshCw size={13} /> Atualizar
-          </button>
+          <button type="button" className="small-secondary" onClick={loadCalendar} disabled={loading || busy}><RefreshCw size={13} /> Atualizar</button>
         </div>
       </div>
 
@@ -211,24 +202,29 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
               const day = index + 1;
               const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
               const dayActivities = monthActivities.filter(item => item.scheduled_date === iso);
+              const dayScales = monthScales.filter(item => item.service_date === iso);
+              const dayDemands = monthDemands.filter(item => item.preferred_date === iso);
               const dayHolidays = allHolidays.filter(item => item.holiday_date === iso);
               const selected = selectedDate === iso;
               return (
                 <button type="button" key={iso}
-                  className={`calendar-day calendar-day-button ${dayHolidays.length ? "has-holiday" : ""} ${dayActivities.length ? "has-activity" : ""} ${today === iso ? "today" : ""} ${selected ? "selected-day" : ""}`}
+                  className={`calendar-day calendar-day-button ${dayHolidays.length ? "has-holiday" : ""} ${dayActivities.length || dayScales.length || dayDemands.length ? "has-activity" : ""} ${today === iso ? "today" : ""} ${selected ? "selected-day" : ""}`}
                   onClick={() => setSelectedDate(iso)} aria-pressed={selected}>
                   <span>{day}</span>
                   {dayHolidays.slice(0, 1).map((item, i) => <small className="calendar-holiday-label" key={`h-${i}`} title={item.name}>{item.name}</small>)}
-                  {dayActivities.slice(0, 2).map((item, i) => <small className="calendar-activity-label" key={`a-${i}`} title={`${timeLabel(item.start_time)} ${item.schools?.name || "Escola"}`}>{timeLabel(item.start_time)} · {item.schools?.name || "Atividade"}</small>)}
-                  {(dayActivities.length + dayHolidays.length > 3) && <small>+ mais eventos</small>}
+                  {dayActivities.slice(0, 1).map((item, i) => <small className="calendar-activity-label" key={`a-${i}`} title="Atividade agendada">{timeLabel(item.start_time)} · {item.schools?.name || "Atividade"}</small>)}
+                  {dayScales.slice(0, 1).map((item, i) => <small className="calendar-scale-label" key={`s-${i}`} title="Escala de serviço">Escala · {item.personnel?.war_name || item.personnel?.full_name || "Policial"}</small>)}
+                  {dayDemands.slice(0, 1).map((item, i) => <small className="calendar-demand-label" key={`d-${i}`} title="Demanda com data preferencial">Demanda · {item.schools?.name || "Escola"}</small>)}
+                  {(dayActivities.length + dayScales.length + dayDemands.length + dayHolidays.length > 4) && <small>+ mais eventos</small>}
                 </button>
               );
             })}
           </div>
           <div className="holiday-legend">
-            <span><i className="national-dot" /> Feriado nacional</span>
-            <span><i className="local-dot" /> Feriado estadual/local</span>
+            <span><i className="national-dot" /> Feriado</span>
             <span><i className="activity-dot" /> Atividade agendada</span>
+            <span><i className="scale-dot" /> Escala policial</span>
+            <span><i className="demand-dot" /> Demanda</span>
           </div>
           {loading && <p className="muted">Atualizando calendário...</p>}
         </div>
@@ -236,45 +232,60 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
         <aside className="panel holiday-list">
           <div className="holiday-list-heading">
             <h3><CalendarCheck size={17} /> {dateLabel(selectedDate)}</h3>
-            <span className="count">{selectedActivities.length + selectedHolidays.length} eventos</span>
+            <span className="count">{eventCount} eventos</span>
           </div>
-          {selectedHolidays.map((item, index) => (
-            <div className="holiday-row" key={`holiday-${index}`}>
-              <div><b>{item.name}</b><small>{item.kind === "national" ? "Feriado nacional" : item.kind === "state" ? `Estadual · ${state}` : `Local · ${state}`}</small></div>
-              {item.kind !== "national" && isAdmin && <button type="button" className="small-danger" onClick={() => removeHoliday(item.id)} disabled={busy} title="Excluir feriado"><Trash2 size={14} /></button>}
-            </div>
-          ))}
-          {selectedActivities.map(item => (
-            <div className="calendar-event-row" key={item.id}>
-              <div className="calendar-event-time"><Clock size={14} /><b>{timeLabel(item.start_time)} às {timeLabel(item.end_time)}</b></div>
-              <b>{item.schools?.name || "Escola não informada"}</b>
-              <small>{item.demands?.class_name || "Turma não informada"} · {item.demands?.activity_type || "Atividade PROERD"}</small>
-              <small className="calendar-event-instructor"><UserRound size={12} /> {item.instructor?.full_name || "Instrutor não informado"}</small>
-              <span className={`status ${item.status === "Realizada" ? "green" : item.status === "Cancelada" ? "red" : item.status === "Agendada" ? "amber" : "blue"}`}>{item.status}</span>
-              {item.demands?.protocol && <small>Protocolo: {item.demands.protocol}</small>}
-              {item.notes && <small>{item.notes}</small>}
-            </div>
-          ))}
-          {selectedActivities.length === 0 && selectedHolidays.length === 0 && <p className="muted">Não há feriados ou atividades registrados nesta data.</p>}
+
+          {selectedHolidays.map((item, index) => <div className="holiday-row" key={`holiday-${index}`}>
+            <div><b>{item.name}</b><small>{item.kind === "national" ? "Feriado nacional" : item.kind === "state" ? `Estadual · ${state}` : `Local · ${state}`}</small></div>
+            {item.kind !== "national" && isAdmin && <button type="button" className="small-danger" onClick={() => removeHoliday(item.id)} disabled={busy} title="Excluir feriado"><Trash2 size={14} /></button>}
+          </div>)}
+
+          {selectedScales.map(item => <div className="calendar-event-row" key={`scale-${item.id}`}>
+            <div className="calendar-event-time"><Shield size={14} /><b>Escala · {timeLabel(item.shift_start)} às {timeLabel(item.shift_end)}</b></div>
+            <b>{item.personnel?.rank || ""} {item.personnel?.war_name || item.personnel?.full_name || "Policial"}</b>
+            <small>{item.duty_type} · {item.circumstance}</small>
+            {item.personnel?.service_number && <small>Matrícula: {item.personnel.service_number}</small>}
+            {item.notes && <small>{item.notes}</small>}
+          </div>)}
+
+          {selectedDemands.map(item => <div className="calendar-event-row" key={`demand-${item.id}`}>
+            <div className="calendar-event-time"><ClipboardList size={14} /><b>Demanda · {item.preferred_time ? timeLabel(item.preferred_time) : "Horário a definir"}</b></div>
+            <b>{item.schools?.name || "Escola não informada"}</b>
+            <small>{item.class_name} · {item.activity_type}</small>
+            <small>Protocolo: {item.protocol}</small>
+            <small>Situação: {item.status} · Data preferencial, não confirmação de agendamento</small>
+            {item.assignee?.full_name && <small>Instrutor: {item.assignee.full_name}</small>}
+            {item.estimated_students && <small>{item.estimated_students} alunos estimados</small>}
+          </div>)}
+
+          {selectedActivities.map(item => <div className="calendar-event-row" key={`activity-${item.id}`}>
+            <div className="calendar-event-time"><Clock size={14} /><b>Atividade · {timeLabel(item.start_time)} às {timeLabel(item.end_time)}</b></div>
+            <b>{item.schools?.name || "Escola não informada"}</b>
+            <small>{item.demands?.class_name || "Turma não informada"} · {item.demands?.activity_type || "Atividade PROERD"}</small>
+            <small className="calendar-event-instructor"><UserRound size={12} /> {item.instructor?.full_name || "Instrutor não informado"}</small>
+            <span className={`status ${item.status === "Realizada" ? "green" : item.status === "Cancelada" ? "red" : item.status === "Agendada" ? "amber" : "blue"}`}>{item.status}</span>
+            {item.demands?.protocol && <small>Protocolo: {item.demands.protocol}</small>}
+            {item.notes && <small>{item.notes}</small>}
+          </div>)}
+
+          {eventCount === 0 && <p className="muted">Não há feriados, escalas, demandas ou atividades registrados nesta data.</p>}
         </aside>
       </div>
 
-      {isAdmin && (
-        <form className="panel holiday-form" onSubmit={addHoliday}>
-          <h3><Plus size={18} /> Cadastrar feriado estadual ou local</h3>
-          <p className="muted">Os feriados nacionais fixos são exibidos automaticamente. Cadastre datas estaduais ou municipais após conferir o calendário oficial aplicável.</p>
-          <div className="form-row">
-            <label className="field"><span>Nome do feriado</span><input required maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="Ex.: Data Magna do Estado" /></label>
-            <label className="field"><span>Data</span><input required type="date" value={holidayDate} onChange={event => setHolidayDate(event.target.value)} /></label>
-            <label className="field"><span>Abrangência</span><select value={kind} onChange={event => setKind(event.target.value as "state" | "local")}><option value="state">Estadual</option><option value="local">Local / municipal</option></select></label>
-            <button className="primary" disabled={busy}><Plus size={15} /> {busy ? "Salvando..." : "Cadastrar"}</button>
-          </div>
-        </form>
-      )}
+      {isAdmin && <form className="panel holiday-form" onSubmit={addHoliday}>
+        <h3><Plus size={18} /> Cadastrar feriado estadual ou local</h3>
+        <p className="muted">Os feriados nacionais fixos são exibidos automaticamente. Cadastre datas estaduais ou municipais após conferir o calendário oficial aplicável.</p>
+        <div className="form-row">
+          <label className="field"><span>Nome do feriado</span><input required maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="Ex.: Data Magna do Estado" /></label>
+          <label className="field"><span>Data</span><input required type="date" value={holidayDate} onChange={event => setHolidayDate(event.target.value)} /></label>
+          <label className="field"><span>Abrangência</span><select value={kind} onChange={event => setKind(event.target.value as "state" | "local")}><option value="state">Estadual</option><option value="local">Local / municipal</option></select></label>
+          <button className="primary" disabled={busy}><Plus size={15} /> {busy ? "Salvando..." : "Cadastrar"}</button>
+        </div>
+      </form>}
 
       {errorMessage && <p className="notice holiday-error"><AlertCircle size={15} /> {errorMessage}</p>}
       {message && <p className="notice">{message}</p>}
-      <p className="muted holiday-disclaimer">A lista nacional desta versão contempla feriados nacionais fixos. Pontos facultativos, feriados estaduais e municipais devem ser conferidos com o calendário oficial vigente antes do cadastro.</p>
+      <p className="muted holiday-disclaimer">Demandas exibidas nesta tela representam datas preferenciais solicitadas. A confirmação do atendimento depende da programação na agenda. A lista nacional contempla feriados nacionais fixos; pontos facultativos e feriados locais devem ser conferidos no calendário oficial vigente.</p>
     </section>
   );
 }

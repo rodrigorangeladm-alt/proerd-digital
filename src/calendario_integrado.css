@@ -1,20 +1,6 @@
 
-/* Calendário integrado: eventos de feriados e agenda */
-.holiday-calendar-actions{display:flex;align-items:end;gap:10px}
-.holiday-list-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.holiday-list-heading h3{display:flex;align-items:center;gap:8px;margin:0 0 12px}
-.calendar-day-button{width:100%;text-align:left;background:#fff;color:#2e4863;cursor:pointer;font:inherit}
-.calendar-day-button:hover{border-color:#9bb7d1;box-shadow:0 2px 8px #173a5c12}
-.calendar-day-button.selected-day{outline:2px solid #2d6594;outline-offset:-2px;background:#f1f7fc}
-.calendar-day.has-activity{border-color:#c6dced;background:#f5faff}
-.calendar-day .calendar-holiday-label{color:#9b5b21}
-.calendar-day .calendar-activity-label{color:#28628f}
-.activity-dot{background:#3478a9}
-.calendar-event-row{display:grid;gap:6px;padding:12px 0;border-bottom:1px solid #edf1f5;font-size:11px;color:#34516e}
-.calendar-event-row:last-child{border-bottom:0}
-.calendar-event-row>small{font-size:10px;color:#8190a1;line-height:1.4}
-.calendar-event-time,.calendar-event-instructor{display:flex;align-items:center;gap:6px;color:#42688c}
-.holiday-refresh{display:flex;align-items:center;gap:6px;margin-top:12px}
-.holiday-error{display:flex;align-items:flex-start;gap:7px}
-.holiday-disclaimer{margin-top:10px}
-@media(max-width:700px){.holiday-calendar-actions{width:100%;align-items:stretch;flex-direction:column}.calendar-day-button{min-height:64px}.calendar-day-button .calendar-activity-label{font-size:7px}.calendar-day-button .calendar-holiday-label{font-size:7px}.holiday-list-heading{align-items:flex-start}}
+/* Complementos do calendário integrado: escalas e demandas */
+.calendar-day .calendar-scale-label{color:#6b55a3}
+.calendar-day .calendar-demand-label{color:#a45f28}
+.scale-dot{background:#8068b4}
+.demand-dot{background:#c27a36}

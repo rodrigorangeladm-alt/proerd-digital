@@ -788,7 +788,7 @@ export default function App() {
       {loading && <div className="loading-line"/>}
       {tab==="calendar" && <HolidaysCalendar supabase={supabase} profile={profile}/>}
       {tab==="logistics" && profile.role === "admin" && <Logistics/>}
-      {tab==="patrimony" && profile.role !== "school" && <Patrimony/>}
+      {tab==="patrimony" && <Patrimony/>}
       {tab==="dashboard" && <section>
         <div className="welcome"><div><h2>Bem-vindo ao PROERD DIGITAL</h2><p>Ambiente controlado para validar o fluxo administrativo antes de uma implantação institucional.</p></div><ShieldCheck size={42}/></div>
         <div className="stats">

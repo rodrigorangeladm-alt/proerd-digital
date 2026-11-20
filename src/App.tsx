@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity as ActivityIcon, AlertCircle, ArrowRight, BookOpen, Check, CheckCircle2, CalendarDays, Clock, Bell,
   ClipboardList, GraduationCap, LayoutDashboard, LogOut, Plus, RefreshCw, School as SchoolIcon, Car,
-  ShieldCheck, Users, X, Fuel
+  ShieldCheck, Users, X, Fuel, Boxes
 } from "lucide-react";
 import { configured, supabase, type Activity, type Demand, type Profile, type School } from "./lib";
 import VehicleOperations from "./VehicleOperations";
@@ -14,9 +14,10 @@ import ServiceScales from "./ServiceScales";
 import ManagementSuite from "./ManagementSuite";
 import AdminNotifications from "./AdminNotifications";
 import HolidaysCalendar from "./HolidaysCalendar";
+import Logistics from "./Logistics";
 import "./management-suite.css";
 
-type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal" | "communication" | "documents" | "scales" | "managementSuite" | "calendar";
+type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal" | "communication" | "documents" | "scales" | "managementSuite" | "calendar" | "logistics";
 type Personnel = {
   id: string;
   full_name: string;
@@ -756,6 +757,7 @@ export default function App() {
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
     {id:"communication" as Tab,label:"Comunicação e avisos",icon:Bell},
     {id:"documents" as Tab,label:"Documentos institucionais",icon:BookOpen},
+    ...(profile.role === "admin" ? [{id:"logistics" as Tab,label:"Logística",icon:Boxes}] : []),
     {id:"calendar" as Tab,label:"Calendário e feriados",icon:CalendarDays},
     {id:"scales" as Tab,label:"Escalas",icon:CalendarDays},
     ...(profile.role === "admin" ? [{id:"managementSuite" as Tab,label:"Gestão Estratégica",icon:ActivityIcon}] : []),
@@ -783,6 +785,7 @@ export default function App() {
       {notice && <div className="notice-bar"><AlertCircle size={17}/>{notice}<button onClick={()=>setNotice("")}><X size={16}/></button></div>}
       {loading && <div className="loading-line"/>}
       {tab==="calendar" && <HolidaysCalendar supabase={supabase} profile={profile}/>}
+      {tab==="logistics" && profile.role === "admin" && <Logistics/>}
       {tab==="dashboard" && <section>
         <div className="welcome"><div><h2>Bem-vindo ao PROERD DIGITAL</h2><p>Ambiente controlado para validar o fluxo administrativo antes de uma implantação institucional.</p></div><ShieldCheck size={42}/></div>
         <div className="stats">

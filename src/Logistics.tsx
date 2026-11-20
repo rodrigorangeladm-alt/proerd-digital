@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Boxes, PackagePlus, RefreshCw, Search, Truck, X } from "lucide-react";
-import { supabase } from "./lib";
+import { configured, supabase } from "./lib";
 import "./logistics.css";
 
 type Material = {
@@ -28,10 +28,12 @@ export default function Logistics() {
   const [formMaterial,setFormMaterial]=useState({name:"",category:"Material didático",unit:"unidade",minimum_stock:"0",storage_location:"",notes:""});
   const [formMovement,setFormMovement]=useState({material_id:"",movement_type:"Entrada" as Movement["movement_type"],quantity:"",destination:"",recipient_name:"",reference_document:"",notes:""});
   const load=useCallback(async()=>{
+    if (!configured || !supabase) { setError("Supabase não está configurado. Confira VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY."); setLoading(false); return; }
+    const client = supabase!;
     setLoading(true);setError("");
     const [m,mv]=await Promise.all([
-      supabase.from("logistics_materials").select("*").eq("active",true).order("name"),
-      supabase.from("logistics_movements").select("*, material:logistics_materials(name,unit)").order("movement_date",{ascending:false}).limit(100)
+      client.from("logistics_materials").select("*").eq("active",true).order("name"),
+      client.from("logistics_movements").select("*, material:logistics_materials(name,unit)").order("movement_date",{ascending:false}).limit(100)
     ]);
     if(m.error){setError(m.error.message);} else if(mv.error){setError(mv.error.message);} else {setMaterials((m.data||[]) as Material[]);setMovements((mv.data||[]) as Movement[]);}
     setLoading(false);
@@ -41,15 +43,15 @@ export default function Logistics() {
   const lowStock=materials.filter(m=>Number(m.current_stock)<=Number(m.minimum_stock));
   const totalUnits=materials.reduce((acc,m)=>acc+Number(m.current_stock),0);
   async function addMaterial(e:FormEvent){
-    e.preventDefault();setSaving(true);setError("");setNotice("");
-    const payload={...formMaterial,minimum_stock:Number(formMaterial.minimum_stock),current_stock:0,created_by:(await supabase.auth.getUser()).data.user?.id};
-    const {error:err}=await supabase.from("logistics_materials").insert(payload);
+    e.preventDefault();if (!configured || !supabase) { setError("Supabase não está configurado."); return; }const client=supabase!;setSaving(true);setError("");setNotice("");
+    const payload={...formMaterial,minimum_stock:Number(formMaterial.minimum_stock),current_stock:0,created_by:(await client.auth.getUser()).data.user?.id};
+    const {error:err}=await client.from("logistics_materials").insert(payload);
     if(err)setError(err.message);else{setNotice("Material cadastrado.");setModal(null);setFormMaterial({name:"",category:"Material didático",unit:"unidade",minimum_stock:"0",storage_location:"",notes:""});await load();}
     setSaving(false);
   }
   async function addMovement(e:FormEvent){
-    e.preventDefault();setSaving(true);setError("");setNotice("");
-    const {data,error:err}=await supabase.rpc("register_logistics_movement",{
+    e.preventDefault();if (!configured || !supabase) { setError("Supabase não está configurado."); return; }const client=supabase!;setSaving(true);setError("");setNotice("");
+    const {data,error:err}=await client.rpc("register_logistics_movement",{
       p_material_id:formMovement.material_id,p_movement_type:formMovement.movement_type,
       p_quantity:Number(formMovement.quantity),p_destination:formMovement.destination||null,
       p_recipient_profile_id:null,p_recipient_name:formMovement.recipient_name||null,

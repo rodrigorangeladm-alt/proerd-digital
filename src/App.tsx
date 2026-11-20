@@ -15,9 +15,10 @@ import ManagementSuite from "./ManagementSuite";
 import AdminNotifications from "./AdminNotifications";
 import HolidaysCalendar from "./HolidaysCalendar";
 import Logistics from "./Logistics";
+import Patrimony from "./Patrimony";
 import "./management-suite.css";
 
-type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal" | "communication" | "documents" | "scales" | "managementSuite" | "calendar" | "logistics";
+type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal" | "communication" | "documents" | "scales" | "managementSuite" | "calendar" | "logistics" | "patrimony";
 type Personnel = {
   id: string;
   full_name: string;
@@ -758,6 +759,7 @@ export default function App() {
     {id:"communication" as Tab,label:"Comunicação e avisos",icon:Bell},
     {id:"documents" as Tab,label:"Documentos institucionais",icon:BookOpen},
     ...(profile.role === "admin" ? [{id:"logistics" as Tab,label:"Logística",icon:Boxes}] : []),
+    {id:"patrimony" as Tab,label:"Patrimônio",icon:ShieldCheck},
     {id:"calendar" as Tab,label:"Calendário e feriados",icon:CalendarDays},
     {id:"scales" as Tab,label:"Escalas",icon:CalendarDays},
     ...(profile.role === "admin" ? [{id:"managementSuite" as Tab,label:"Gestão Estratégica",icon:ActivityIcon}] : []),
@@ -786,6 +788,7 @@ export default function App() {
       {loading && <div className="loading-line"/>}
       {tab==="calendar" && <HolidaysCalendar supabase={supabase} profile={profile}/>}
       {tab==="logistics" && profile.role === "admin" && <Logistics/>}
+      {tab==="patrimony" && profile.role !== "school" && <Patrimony/>}
       {tab==="dashboard" && <section>
         <div className="welcome"><div><h2>Bem-vindo ao PROERD DIGITAL</h2><p>Ambiente controlado para validar o fluxo administrativo antes de uma implantação institucional.</p></div><ShieldCheck size={42}/></div>
         <div className="stats">

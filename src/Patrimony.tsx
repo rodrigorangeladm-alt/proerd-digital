@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { AlertTriangle, Archive, ArrowLeftRight, ClipboardList, Plus, RefreshCw, Search, Shield, X, QrCode } from "lucide-react";
 import { configured, supabase } from "./lib";
-import import "./patrimonio.css";\nimport PatrimonyQRLabels from "./PatrimonyQRLabels";
+import "./patrimonio.css";
+import PatrimonyQRLabels from "./PatrimonyQRLabels";
 
 type Asset = { id:string; asset_name:string; category:string; tombamento:string; brand:string|null; model:string|null; serial_number:string|null; acquisition_date:string|null; acquisition_value:number|null; supplier:string|null; conservation_status:string; current_location:string; custodian_id:string|null; custodian_name:string|null; asset_status:string; notes:string|null; document_url:string|null; created_at:string };
 type Movement = { id:string; asset_id:string; movement_type:string; movement_date:string; from_location:string|null; to_location:string|null; from_custodian_name:string|null; to_custodian_name:string|null; resulting_status:string|null; description:string; document_url:string|null; asset?:{asset_name:string;tombamento:string}|null };

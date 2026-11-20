@@ -37,6 +37,11 @@ type Personnel = {
   birth_date?: string | null;
   sub_unit?: string | null;
   team_definition?: string | null;
+  vacation_month?: string | null;
+  annual_bonus_days?: number | null;
+  natalicio_leave_date?: string | null;
+  edital_leave_days?: number | null;
+  reward_leave_days?: number | null;
   role_accumulation?: boolean | null;
   seniority_classification?: string | null;
   siape?: string | null;
@@ -152,6 +157,7 @@ export default function App() {
     linked_profile_id: "", notes: "", cpf: "", rg: "", rg_issuing_agency: "",
     birth_date: "", sub_unit: "PROERD", team_definition: "INSTRUTOR",
     role_accumulation: false, seniority_classification: "", siape: "", access_login: "",
+    vacation_month: "", annual_bonus_days: "0", natalicio_leave_date: "", edital_leave_days: "0", reward_leave_days: "0",
     pmdf_join_date: "", restrictions: "", proerd_number: "", proerd_training_year: "",
     cap_completion_date: "", caep_completion_date: "", choaem_completion_date: "",
     license_type: "B", cnh_number: "", license_expiry_date: "", biennial_expiry_date: "",
@@ -354,6 +360,9 @@ export default function App() {
       cpf: person.cpf || "", rg: person.rg || "", rg_issuing_agency: person.rg_issuing_agency || "",
       birth_date: person.birth_date || "", sub_unit: person.sub_unit || "",
       team_definition: person.team_definition || "", role_accumulation: Boolean(person.role_accumulation),
+      vacation_month: person.vacation_month || "", annual_bonus_days: String(person.annual_bonus_days ?? 0),
+      natalicio_leave_date: person.natalicio_leave_date || "", edital_leave_days: String(person.edital_leave_days ?? 0),
+      reward_leave_days: String(person.reward_leave_days ?? 0),
       seniority_classification: person.seniority_classification || "", siape: person.siape || "",
       access_login: person.access_login || "", pmdf_join_date: person.pmdf_join_date || "",
       restrictions: person.restrictions || "", proerd_number: person.proerd_number || "",
@@ -395,6 +404,11 @@ export default function App() {
       birth_date: personnelForm.birth_date || null,
       sub_unit: personnelForm.sub_unit.trim() || null,
       team_definition: personnelForm.team_definition.trim() || null,
+      vacation_month: personnelForm.vacation_month || null,
+      annual_bonus_days: Math.min(5, Math.max(0, Number(personnelForm.annual_bonus_days) || 0)),
+      natalicio_leave_date: personnelForm.natalicio_leave_date || null,
+      edital_leave_days: Math.max(0, Number(personnelForm.edital_leave_days) || 0),
+      reward_leave_days: Math.max(0, Number(personnelForm.reward_leave_days) || 0),
       role_accumulation: personnelForm.role_accumulation,
       seniority_classification: personnelForm.seniority_classification.trim() || null,
       siape: personnelForm.siape.trim() || null,
@@ -856,6 +870,20 @@ export default function App() {
                 <Field label="Função"><input value={personnelForm.function_name} onChange={e=>setPersonnelForm({...personnelForm,function_name:e.target.value})} placeholder="Função administrativa"/></Field>
                 <Field label="Vincular conta de acesso"><select value={personnelForm.linked_profile_id} onChange={e=>setPersonnelForm({...personnelForm,linked_profile_id:e.target.value})}><option value="">Sem vínculo</option>{users.map(u=><option key={u.id} value={u.id}>{u.full_name || u.email || "Usuário"} ({u.role==="admin"?"Administrador":"Instrutor"})</option>)}</select></Field>
               </div>
+            </div>
+
+            <div className="panel">
+              <h3>Férias, abonos e afastamentos</h3>
+              <div className="form-row">
+                <Field label="Mês das férias"><select value={personnelForm.vacation_month} onChange={e=>setPersonnelForm({...personnelForm,vacation_month:e.target.value})}><option value="">Não definido</option>{["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"].map(m=><option key={m} value={m}>{m}</option>)}</select></Field>
+                <Field label="Dias de abono anual (máximo 5)"><input type="number" min="0" max="5" step="1" value={personnelForm.annual_bonus_days} onChange={e=>setPersonnelForm({...personnelForm,annual_bonus_days:e.target.value})} onBlur={e=>{const value=Number(e.currentTarget.value)||0;setPersonnelForm({...personnelForm,annual_bonus_days:String(Math.min(5,Math.max(0,value)))})}}/></Field>
+                <Field label="Data do abono natalício"><input type="date" value={personnelForm.natalicio_leave_date} onChange={e=>setPersonnelForm({...personnelForm,natalicio_leave_date:e.target.value})}/></Field>
+              </div>
+              <div className="form-row">
+                <Field label="Dias de afastamento por edital"><input type="number" min="0" step="1" value={personnelForm.edital_leave_days} onChange={e=>setPersonnelForm({...personnelForm,edital_leave_days:e.target.value})}/></Field>
+                <Field label="Dias de dispensa recompensa"><input type="number" min="0" step="1" value={personnelForm.reward_leave_days} onChange={e=>setPersonnelForm({...personnelForm,reward_leave_days:e.target.value})}/></Field>
+              </div>
+              <small className="muted">Controle anual individual. O abono anual é limitado a 5 dias.</small>
             </div>
 
             <div className="panel">

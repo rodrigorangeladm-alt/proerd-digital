@@ -89,16 +89,17 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
       supabase.from("calendar_preferences").select("state_code").eq("id", 1).maybeSingle(),
       supabase.from("calendar_holidays").select("id,holiday_date,name,state_code,kind")
         .eq("state_code", state).gte("holiday_date", `${year}-01-01`).lte("holiday_date", `${year}-12-31`).order("holiday_date"),
-      supabase.from("service_schedule")
+      (() => { let q = supabase.from("service_schedule")
         .select("id,demand_id,instructor_id,school_id,scheduled_date,start_time,end_time,status,notes,demands(protocol,class_name,activity_type),schools(name,region),instructor:profiles!service_schedule_instructor_id_fkey(full_name)")
-        .gte("scheduled_date", monthStart).lte("scheduled_date", monthEnd).order("scheduled_date").order("start_time"),
-      supabase.from("service_scale_entries")
-        .select("id,service_date,personnel_id,duty_type,shift_start,shift_end,circumstance,notes,personnel(id,full_name,war_name,service_number,rank,status)")
-        .gte("service_date", monthStart).lte("service_date", monthEnd).order("service_date").order("shift_start"),
-      supabase.from("demands")
+        .gte("scheduled_date", monthStart).lte("scheduled_date", monthEnd).order("scheduled_date").order("start_time");
+        if (!isAdmin) q = q.eq("instructor_id", profile.id); return q; })(),
+      isAdmin ? supabase.from("service_scale_entries")
+        .select("id,service_date,personnel_id,duty_type,shift_start,shift_end,circumstance,notes,personnel(id,full_name,war_name,service_number,rank,status)").gte("service_date", monthStart).lte("service_date", monthEnd).order("service_date").order("shift_start") : Promise.resolve({data:[],error:null}),
+      (() => { let q = supabase.from("demands")
         .select("id,protocol,school_id,class_name,activity_type,preferred_date,preferred_time,status,assigned_to,estimated_students,schools(name,region),assignee:profiles!demands_assigned_to_fkey(full_name)")
-        .gte("preferred_date", monthStart).lte("preferred_date", monthEnd).order("preferred_date"),
-      supabase.from("personnel").select("id,full_name,war_name,rank,service_number,vacation_month,vacation_start_date,vacation_end_date,annual_bonus_dates,natalicio_leave_date,edital_leave_start_date,edital_leave_end_date,edital_leave_days,reward_leave_start_date,reward_leave_end_date,reward_leave_days").eq("status", "Ativo"),
+        .gte("preferred_date", monthStart).lte("preferred_date", monthEnd).order("preferred_date");
+        if (!isAdmin) q = q.eq("assigned_to", profile.id); return q; })(),
+      isAdmin ?       supabase.from("personnel").select("id,full_name,war_name,rank,service_number,vacation_month,vacation_start_date,vacation_end_date,annual_bonus_dates,natalicio_leave_date,edital_leave_start_date,edital_leave_end_date,edital_leave_days,reward_leave_start_date,reward_leave_end_date,reward_leave_days").eq("status", "Ativo") : Promise.resolve({data:[],error:null}),
     ]);
 
     const errors = [
@@ -111,10 +112,10 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
     return {
       preference: pref.data?.state_code as string | undefined,
       holidays: (holidayResult.data || []) as Holiday[],
-      activities: (scheduleResult.data || []) as CalendarActivity[],
-      scales: (scaleResult.data || []) as CalendarScale[],
-      demands: (demandResult.data || []) as CalendarDemand[],
-      personnel: (personnelResult.data || []) as CalendarAbsence[],
+      activities: ((scheduleResult.data || []).filter((x:any) => isAdmin || x.instructor_id === profile.id)) as CalendarActivity[],
+      scales: (isAdmin ? (scaleResult.data || []) : []) as CalendarScale[],
+      demands: ((demandResult.data || []).filter((x:any) => isAdmin || x.assigned_to === profile.id)) as CalendarDemand[],
+      personnel: (isAdmin ? (personnelResult.data || []) : []) as CalendarAbsence[],
       errors,
     };
   }
@@ -246,11 +247,11 @@ export default function HolidaysCalendar({ supabase, profile }: { supabase: any;
       <div className="calendar-filter-bar panel">
         <div className="calendar-filter-title"><Search size={16}/><b>Filtros</b></div>
         <label className="field"><span>Tipo de evento</span><select value={filterType} onChange={e=>setFilterType(e.target.value)}>
-          <option value="todos">Todos</option><option value="escala">Escalas</option><option value="demanda">Demandas</option><option value="atividade">Atividades agendadas</option><option value="feriado">Feriados</option><option value="afastamento">Afastamentos</option>
+          <option value="todos">Todos</option>{isAdmin && <><option value="escala">Escalas</option><option value="demanda">Demandas</option></>}<option value="atividade">Atividades agendadas</option><option value="feriado">Feriados</option>{isAdmin && <option value="afastamento">Afastamentos</option>}
         </select></label>
-        <label className="field"><span>Instrutor / policial</span><select value={filterInstructor} onChange={e=>setFilterInstructor(e.target.value)}>
+        {isAdmin && <label className="field"><span>Instrutor / policial</span><select value={filterInstructor} onChange={e=>setFilterInstructor(e.target.value)}>
           <option value="todos">Todos</option>{instructorOptions.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}
-        </select></label>
+        </select></label>}
         <label className="field"><span>Escola</span><select value={filterSchool} onChange={e=>setFilterSchool(e.target.value)}>
           <option value="todos">Todas</option>{schoolOptions.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}
         </select></label>

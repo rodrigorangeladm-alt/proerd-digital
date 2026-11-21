@@ -14,11 +14,12 @@ import ServiceScales from "./ServiceScales";
 import ManagementSuite from "./ManagementSuite";
 import AdminNotifications from "./AdminNotifications";
 import HolidaysCalendar from "./HolidaysCalendar";
+import StudentManagement from "./StudentManagement";
 import Logistics from "./Logistics";
 import Patrimony from "./Patrimony";
 import "./management-suite.css";
 
-type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal" | "communication" | "documents" | "scales" | "managementSuite" | "calendar" | "logistics" | "patrimony";
+type Tab = "dashboard" | "personnel" | "instructors" | "leave" | "vehicles" | "vehicleUsage" | "vehicleOperations" | "schedule" | "schools" | "demands" | "activities" | "reports" | "users" | "schoolPortal" | "communication" | "documents" | "scales" | "managementSuite" | "calendar" | "logistics" | "patrimony" | "students";
 type Personnel = {
   id: string;
   full_name: string;
@@ -799,6 +800,7 @@ export default function App() {
     ...(profile.role === "admin" ? [{id:"schools" as Tab,label:"Escolas",icon:SchoolIcon},{id:"schoolPortal" as Tab,label:"Portal das Escolas",icon:SchoolIcon}] : []),
     {id:"demands",label:profile.role === "admin" ? "Central de demandas" : "Minhas designações",icon:ClipboardList},
     {id:"activities",label:profile.role === "admin" ? "Validação de atividades" : "Minhas atividades",icon:BookOpen},
+    {id:"students" as Tab,label:"Turmas e alunos",icon:GraduationCap},
     {id:"communication" as Tab,label:"Comunicação e avisos",icon:Bell},
     {id:"documents" as Tab,label:"Documentos institucionais",icon:BookOpen},
     ...(profile.role === "admin" ? [{id:"logistics" as Tab,label:"Logística",icon:Boxes}] : []),
@@ -1167,6 +1169,7 @@ export default function App() {
         <div className="section-head"><div><h2>{profile.role==="admin"?"Registros para validação":"Histórico de atividades"}</h2><p>Somente atividades validadas integram os indicadores consolidados.</p></div></div>
         <div className="panel table-panel">{visibleActivities.length===0?<Empty text="Nenhuma atividade registrada."/>:<div className="table-wrap"><table><thead><tr><th>Protocolo</th><th>Escola / turma</th><th>Data</th><th>Alunos</th><th>Status</th><th>Validação</th></tr></thead><tbody>{visibleActivities.map(a=><tr key={a.id}><td>{a.demands?.protocol || "—"}</td><td>{a.demands?.schools?.name || "Escola"}<small>{a.demands?.class_name}</small></td><td>{a.performed_on}</td><td>{a.students_present}</td><td><Status value={a.status}/></td><td>{profile.role==="admin" && a.status==="Pendente de validação"?<div className="review"><input placeholder="Motivo se devolver" value={reviewNote} onChange={e=>setReviewNote(e.target.value)}/><button className="small-primary" onClick={()=>validateActivity(a.id,true)}><Check size={14}/> Validar</button><button className="small-danger" onClick={()=>validateActivity(a.id,false)}>Devolver</button></div>:a.validation_note || (profile.role==="admin"?(a as any).instructor?.full_name:"")}</td></tr>)}</tbody></table></div>}</div>
       </section>}
+      {tab==="students" && <StudentManagement profile={profile} demands={demands} schools={schools} />}
       {tab==="reports" && profile.role==="admin" && <section>
         <div className="section-head"><div><h2>Inteligência gerencial</h2><p>Indicadores calculados com os registros disponíveis no PROERD DIGITAL.</p></div><div className="actions"><select value={reportPeriod} onChange={e=>setReportPeriod(e.target.value)}><option value="3">Últimos 3 meses</option><option value="6">Últimos 6 meses</option><option value="12">Últimos 12 meses</option><option value="all">Todo o período</option></select><button className="small-primary" onClick={()=>exportManagementCsv(schools,demands,activities,personnel,vehicles,vehicleUsages)}><ActivityIcon size={14}/> Exportar CSV</button></div></div>
         {(() => {

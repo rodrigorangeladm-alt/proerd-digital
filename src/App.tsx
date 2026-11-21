@@ -189,6 +189,9 @@ export default function App() {
   const [preferredDate, setPreferredDate] = useState(dateToday());
   const [assignTo, setAssignTo] = useState("");
   const [activityDemand, setActivityDemand] = useState("");
+  const [activityStartDate, setActivityStartDate] = useState(dateToday());
+  const [activityEndDate, setActivityEndDate] = useState(dateToday());
+  const [selectedDemandIds, setSelectedDemandIds] = useState<string[]>([]);
   const [students, setStudents] = useState("25");
   const [activityResult, setActivityResult] = useState("Realizada integralmente");
   const [activityNotes, setActivityNotes] = useState("");
@@ -334,14 +337,30 @@ export default function App() {
   }
 
   async function submitActivity(e: React.FormEvent) {
-    e.preventDefault(); if (!supabase || !activityDemand) return;
-    const { error } = await supabase.from("activities").insert({
-      demand_id: activityDemand, instructor_id: session.user.id, performed_on: dateToday(),
-      students_present: Number(students), result: activityResult, notes: activityNotes || null,
-      status: "Pendente de validação"
-    });
-    setNotice(error ? error.message : "Registro de atividade enviado para validação.");
-    if (!error) { setActivityNotes(""); refresh(); }
+    e.preventDefault(); if (!supabase || !activityDemand || !activityStartDate || !activityEndDate) return;
+    if (activityEndDate < activityStartDate) { setNotice("A data final deve ser igual ou posterior à data inicial."); return; }
+    const dates: string[] = [];
+    const cursor = new Date(`${activityStartDate}T12:00:00`);
+    const end = new Date(`${activityEndDate}T12:00:00`);
+    while (cursor <= end) { dates.push(cursor.toISOString().slice(0,10)); cursor.setDate(cursor.getDate()+1); }
+    const records = dates.map(performed_on => ({ demand_id: activityDemand, instructor_id: session.user.id, performed_on, students_present: Number(students), result: activityResult, notes: activityNotes || null, status: "Pendente de validação" }));
+    const { error } = await supabase.from("activities").insert(records);
+    setNotice(error ? `Não foi possível registrar as atividades: ${error.message}` : `${records.length} atividade(s) enviada(s) para validação.`);
+    if (!error) { setActivityNotes(""); setActivityStartDate(dateToday()); setActivityEndDate(dateToday()); refresh(); }
+  }
+
+
+  async function respondToSelectedDemands(accepted: boolean) {
+    if (!supabase || selectedDemandIds.length === 0) return;
+    const reason = accepted ? null : window.prompt("Informe a justificativa para recusar as designações selecionadas:");
+    if (!accepted && !reason?.trim()) { setNotice("A justificativa é obrigatória para recusas em lote."); return; }
+    let successes = 0; let failure: string | null = null;
+    for (const id of selectedDemandIds) {
+      const { error } = await supabase.rpc("respond_to_demand", { p_demand_id: id, p_accept: accepted, p_reason: accepted ? null : reason });
+      if (error) failure = error.message; else successes++;
+    }
+    setNotice(failure ? `${successes} designação(ões) processada(s). Erro: ${failure}` : `${successes} designação(ões) ${accepted ? "aceita(s)" : "recusada(s)"}.`);
+    setSelectedDemandIds([]); await refresh();
   }
 
   async function validateActivity(id: string, approved: boolean) {
@@ -744,6 +763,7 @@ export default function App() {
 
   const visibleDemands = useMemo(() => profile?.role === "admin" ? demands : demands.filter(d => d.assigned_to === profile?.id || (d as any).created_by === profile?.id), [demands, profile]);
   const visibleActivities = useMemo(() => profile?.role === "admin" ? activities : activities.filter(a => (a as any).instructor_id === profile?.id), [activities, profile]);
+  const visibleVehicleUsages = useMemo(() => profile?.role === "admin" ? vehicleUsages : vehicleUsages.filter(u => personnel.some(p => p.id === u.personnel_id && p.linked_profile_id === profile?.id)), [vehicleUsages, personnel, profile]);
   const pending = demands.filter(d => d.status === "Pendente" || d.status === "Aguardando aceite" || d.status === "Aguardando autorização").length;
   const validated = activities.filter(a => a.status === "Validada").length;
 
@@ -782,7 +802,7 @@ export default function App() {
     {id:"communication" as Tab,label:"Comunicação e avisos",icon:Bell},
     {id:"documents" as Tab,label:"Documentos institucionais",icon:BookOpen},
     ...(profile.role === "admin" ? [{id:"logistics" as Tab,label:"Logística",icon:Boxes}] : []),
-    {id:"patrimony" as Tab,label:"Patrimônio",icon:ShieldCheck},
+    ...(profile.role === "admin" ? [{id:"patrimony" as Tab,label:"Patrimônio",icon:ShieldCheck}] : []),
     {id:"calendar" as Tab,label:"Calendário e feriados",icon:CalendarDays},
     {id:"scales" as Tab,label:"Escalas",icon:CalendarDays},
     ...(profile.role === "admin" ? [{id:"managementSuite" as Tab,label:"Gestão Estratégica",icon:ActivityIcon}] : []),
@@ -811,7 +831,7 @@ export default function App() {
       {loading && <div className="loading-line"/>}
       {tab==="calendar" && <HolidaysCalendar supabase={supabase} profile={profile}/>}
       {tab==="logistics" && profile.role === "admin" && <Logistics/>}
-      {tab==="patrimony" && <Patrimony/>}
+      {tab==="patrimony" && profile.role === "admin" && <Patrimony/>}
       {tab==="dashboard" && <section>
         <div className="welcome"><div><h2>Bem-vindo ao PROERD DIGITAL</h2><p>Ambiente controlado para validar o fluxo administrativo antes de uma implantação institucional.</p></div><ShieldCheck size={42}/></div>
         <div className="stats">
@@ -1055,7 +1075,7 @@ export default function App() {
 
       {tab==="vehicleOperations" && <VehicleOperations profile={profile} vehicles={vehicles} vehicleUsages={vehicleUsages} personnel={personnel} onRefresh={refresh} onNotice={setNotice} />}
       {tab==="vehicleUsage" && <section>
-        <div className="section-head"><div><h2>Histórico de utilização de viaturas</h2><p>{profile.role==="admin" ? "Gerencie saídas, retornos e registros de toda a equipe." : "Consulte a disponibilidade, registre sua saída e informe o retorno da viatura."} Utilize somente dados fictícios nesta PoC.</p></div><span className="count">{vehicleUsages.length} registros</span></div>
+        <div className="section-head"><div><h2>Histórico de utilização de viaturas</h2><p>{profile.role==="admin" ? "Gerencie saídas, retornos e registros de toda a equipe." : "Consulte a disponibilidade, registre sua saída e informe o retorno da viatura."} Utilize somente dados fictícios nesta PoC.</p></div><span className="count">{visibleVehicleUsages.length} registros</span></div>
         {profile.role === "instructor" ? <>
           <div className="panel form demand-form">
             <h3><Plus size={18}/> Solicitar pré-reserva de viatura</h3>
@@ -1082,7 +1102,7 @@ export default function App() {
         </div>}
         <div className="panel table-panel">
           <div className="users-heading"><div><h3>Registros de utilização</h3><p>As utilizações em andamento podem ser finalizadas com os dados de retorno.</p></div></div>
-          {vehicleUsages.length===0 ? <Empty text="Nenhuma utilização registrada."/> : <div className="table-wrap"><table><thead><tr><th>Viatura</th><th>Responsável</th><th>Destino / finalidade</th><th>Saída</th><th>Retorno / situação</th><th>Ações</th></tr></thead><tbody>{vehicleUsages.map(u=><tr key={u.id}>
+          {visibleVehicleUsages.length===0 ? <Empty text="Nenhuma utilização registrada."/> : <div className="table-wrap"><table><thead><tr><th>Viatura</th><th>Responsável</th><th>Destino / finalidade</th><th>Saída</th><th>Retorno / situação</th><th>Ações</th></tr></thead><tbody>{visibleVehicleUsages.map(u=><tr key={u.id}>
             <td><b>{u.vehicle?.fleet_number || "Sem frota"}</b><small>{u.vehicle?.make || ""} {u.vehicle?.model || ""} · {u.vehicle?.plate || "Sem placa"}</small></td>
             <td><b>{u.personnel?.full_name || "Cadastro funcional"}</b><small>{u.personnel?.rank || ""}</small></td>
             <td>{u.destination}<small>{u.purpose}</small>{u.notes && <small>{u.notes}</small>}</td>
@@ -1132,17 +1152,18 @@ export default function App() {
           <div className="form-row"><Field label="Escola"><select required value={dSchool} onChange={e=>setDSchool(e.target.value)}><option value="">Selecione</option>{schools.map(s=><option value={s.id} key={s.id}>{s.name}</option>)}</select></Field><Field label="Turma"><input required value={className} onChange={e=>setClassName(e.target.value)}/></Field></div>
           <div className="form-row"><Field label="Tipo de atividade"><select value={activityType} onChange={e=>setActivityType(e.target.value)}><option>PROERD 5º ano</option><option>PROERD 7º ano</option><option>PROERD Kids</option><option>Palestra</option></select></Field><Field label="Data preferencial"><input type="date" value={preferredDate} onChange={e=>setPreferredDate(e.target.value)}/></Field></div>
           <button className="primary" disabled={!schools.length}>Criar demanda</button></form></div>}
+        {profile.role==="instructor" && visibleDemands.some(d=>d.status==="Aguardando aceite") && <div className="panel"><div className="actions"><b>Seleção em lote</b><button className="small-primary" disabled={!selectedDemandIds.length} onClick={()=>respondToSelectedDemands(true)}>Aceitar selecionadas ({selectedDemandIds.length})</button><button className="small-danger" disabled={!selectedDemandIds.length} onClick={()=>respondToSelectedDemands(false)}>Recusar selecionadas</button></div></div>}
         <div className="section-head"><div><h2>{profile.role==="admin"?"Central de solicitações e demandas":"Minhas solicitações e designações"}</h2><p>Acompanhe o protocolo, a autorização e o andamento do atendimento.</p></div><span className="count">{visibleDemands.length} registros</span></div>
-        <div className="panel table-panel">{visibleDemands.length===0?<Empty text="Nenhuma solicitação ou demanda disponível."/>:<div className="table-wrap"><table><thead><tr><th>Protocolo</th><th>Escola / turma</th><th>Atividade</th><th>Data e horário</th><th>Status</th><th>Responsável / análise</th></tr></thead><tbody>
+        <div className="panel table-panel">{visibleDemands.length===0?<Empty text="Nenhuma solicitação ou demanda disponível."/>:<div className="table-wrap"><table><thead><tr><th>Protocolo</th><th>Escola / turma</th><th>Atividade</th><th>Data e horário</th><th>Status</th><th>Responsável / análise</th>{profile.role==="instructor"&&<th>Selecionar</th>}</tr></thead><tbody>
           {visibleDemands.map(d=><tr key={d.id}><td><b>{d.protocol}</b></td><td>{d.schools?.name || "Escola"}<small>{d.class_name}</small></td><td>{d.activity_type}<small>{(d as any).estimated_students ? `${(d as any).estimated_students} alunos estimados` : ""}</small></td><td>{d.preferred_date || "A definir"}<small>{(d as any).preferred_time || ""}</small></td><td><Status value={d.status}/>{(d as any).review_reason && <small>Justificativa: {(d as any).review_reason}</small>}</td><td>
             {profile.role==="admin" && d.status==="Aguardando autorização" ? <div className="form"><textarea placeholder="Justificativa obrigatória para indeferir ou devolver" value={serviceReviewNotes[d.id] || ""} onChange={e=>setServiceReviewNotes({...serviceReviewNotes,[d.id]:e.target.value})}/><div className="actions"><button className="small-primary" onClick={()=>reviewServiceDemand(d.id,"Autorizada")}>Autorizar</button><button className="small-danger" onClick={()=>reviewServiceDemand(d.id,"Indeferida")}>Indeferir</button><button className="small-secondary" onClick={()=>reviewServiceDemand(d.id,"Devolvida para correção")}>Devolver</button></div></div>
             : profile.role==="admin" ? d.assigned_to ? <span>{d.assignee?.full_name || "Instrutor designado"}</span> : <div className="assign"><select value={assignTo} onChange={e=>setAssignTo(e.target.value)}><option value="">Designar instrutor</option>{users.filter(u=>u.role==="instructor").map(u=><option key={u.id} value={u.id}>{u.full_name}</option>)}</select><button className="small-primary" disabled={!assignTo} onClick={()=>assignDemand(d.id)}>Designar</button></div>
             : d.status==="Aguardando aceite" ? <div className="actions"><button className="small-primary" onClick={()=>respondDemand(d.id,true)}>Aceitar</button><button className="small-danger" onClick={()=>respondDemand(d.id,false)}>Recusar</button></div> : d.status==="Devolvida para correção" ? <small>Revise os dados e envie uma nova solicitação.</small> : d.refusal_reason ? <small>Recusa anterior: {d.refusal_reason}</small> : d.assignee?.full_name || "Aguardando andamento"}
-          </td></tr>)}
+          </td>{profile.role==="instructor"&&<td>{d.status==="Aguardando aceite"&&<input type="checkbox" checked={selectedDemandIds.includes(d.id)} onChange={e=>setSelectedDemandIds(prev=>e.target.checked?[...prev,d.id]:prev.filter(x=>x!==d.id))}/>}</td>}</tr>)}
         </tbody></table></div>}</div>
       </section>}
       {tab==="activities" && <section>
-        {profile.role==="instructor" && <div className="panel form demand-form"><h3><Plus size={18}/> Registrar atividade executada</h3><form onSubmit={submitActivity}><div className="form-row"><Field label="Solicitação autorizada"><select required value={activityDemand} onChange={e=>setActivityDemand(e.target.value)}><option value="">Selecione</option>{visibleDemands.filter(d=>d.status==="Aceita" || d.status==="Autorizada").map(d=><option key={d.id} value={d.id}>{d.protocol} · {d.schools?.name} · {d.class_name}</option>)}</select></Field><Field label="Alunos presentes (número fictício)"><input type="number" min="0" value={students} onChange={e=>setStudents(e.target.value)}/></Field></div><Field label="Resultado"><select value={activityResult} onChange={e=>setActivityResult(e.target.value)}><option>Realizada integralmente</option><option>Realizada parcialmente</option><option>Não realizada</option></select></Field><Field label="Observações"><textarea value={activityNotes} onChange={e=>setActivityNotes(e.target.value)} placeholder="Informações fictícias para o teste."/></Field><button className="primary">Enviar para validação</button></form></div>}
+        {profile.role==="instructor" && <div className="panel form demand-form"><h3><Plus size={18}/> Registrar atividade executada</h3><form onSubmit={submitActivity}><div className="form-row"><Field label="Solicitação autorizada"><select required value={activityDemand} onChange={e=>setActivityDemand(e.target.value)}><option value="">Selecione</option>{visibleDemands.filter(d=>d.status==="Aceita" || d.status==="Autorizada").map(d=><option key={d.id} value={d.id}>{d.protocol} · {d.schools?.name} · {d.class_name}</option>)}</select></Field><Field label="Alunos presentes (número fictício)"><input type="number" min="0" value={students} onChange={e=>setStudents(e.target.value)}/></Field></div><div className="form-row"><Field label="Data inicial"><input type="date" required value={activityStartDate} onChange={e=>setActivityStartDate(e.target.value)}/></Field><Field label="Data final"><input type="date" required min={activityStartDate} value={activityEndDate} onChange={e=>setActivityEndDate(e.target.value)}/></Field></div><Field label="Resultado"><select value={activityResult} onChange={e=>setActivityResult(e.target.value)}><option>Realizada integralmente</option><option>Realizada parcialmente</option><option>Não realizada</option></select></Field><Field label="Observações"><textarea value={activityNotes} onChange={e=>setActivityNotes(e.target.value)} placeholder="Informações fictícias para o teste."/></Field><button className="primary">Enviar para validação</button></form></div>}
         <div className="section-head"><div><h2>{profile.role==="admin"?"Registros para validação":"Histórico de atividades"}</h2><p>Somente atividades validadas integram os indicadores consolidados.</p></div></div>
         <div className="panel table-panel">{visibleActivities.length===0?<Empty text="Nenhuma atividade registrada."/>:<div className="table-wrap"><table><thead><tr><th>Protocolo</th><th>Escola / turma</th><th>Data</th><th>Alunos</th><th>Status</th><th>Validação</th></tr></thead><tbody>{visibleActivities.map(a=><tr key={a.id}><td>{a.demands?.protocol || "—"}</td><td>{a.demands?.schools?.name || "Escola"}<small>{a.demands?.class_name}</small></td><td>{a.performed_on}</td><td>{a.students_present}</td><td><Status value={a.status}/></td><td>{profile.role==="admin" && a.status==="Pendente de validação"?<div className="review"><input placeholder="Motivo se devolver" value={reviewNote} onChange={e=>setReviewNote(e.target.value)}/><button className="small-primary" onClick={()=>validateActivity(a.id,true)}><Check size={14}/> Validar</button><button className="small-danger" onClick={()=>validateActivity(a.id,false)}>Devolver</button></div>:a.validation_note || (profile.role==="admin"?(a as any).instructor?.full_name:"")}</td></tr>)}</tbody></table></div>}</div>
       </section>}
